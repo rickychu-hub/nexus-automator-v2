@@ -1,0 +1,5 @@
+# requirements.txt para el Frontend (Streamlit)
+
+streamlit==1.47.1
+requests==2.32.5
+streamlit-lottie==0.0.3
