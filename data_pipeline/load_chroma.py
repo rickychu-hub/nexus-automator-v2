@@ -9,6 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions
 import sys # Para evitar errores si se ejecuta fuera de un entorno compatible
 import glob
+from chromadb.config import Settings
 
 # --- CONFIGURACIÓN ---
 # Cargar variables de entorno desde .env en la misma carpeta
@@ -89,11 +90,30 @@ def load_data_to_chroma():
     """
     logger.info("--- Iniciando Script de Carga de ChromaDB ---")
     try:
-        logger.info(f"Usando ruta persistente: {CHROMA_DB_PATH}")
-        chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+        # Estas variables vienen del Environment Group de Render
+        S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
+        if not S3_ENDPOINT_URL:
+            raise ValueError("¡ERROR CRÍTICO! S3_ENDPOINT_URL no está configurada.")
+            
+        logger.info(f"Conectando a ChromaDB (modo S3) en endpoint: {S3_ENDPOINT_URL}")
+
+        # ChromaDB usará automáticamente las variables de entorno
+        # AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY para autenticarse.
+        client_settings = Settings(
+            chroma_api_impl="chromadb.api.segment.SegmentAPI",
+            chroma_db_impl="chromadb.db.impl.duckdb.DuckDB",
+            persist_directory="/tmp/chroma_cache", # Caché local efímero
+            s3_bucket_name="chroma-db" # El nombre de nuestro "cubo" de datos en Minio
+        )
+    
+        chroma_client = chromadb.Client(client_settings)
         embedding_fn = GeminiEmbeddingFunction()
+        
+        # El script ahora también creará el "cubo" (bucket) en Minio si no existe
+        chroma_client.get_or_create_collection(name="check_bucket_creation")
+        
         existing = {c.name for c in chroma_client.list_collections()}
-        logger.info(f"Colecciones existentes: {existing}")
+        logger.info(f"Colecciones existentes en S3/Minio: {existing}")
         
         # Definimos el tamaño del lote para añadir a Chroma
         batch_size_add = 2000

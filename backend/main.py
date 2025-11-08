@@ -15,6 +15,7 @@ import copy
 from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions # Asegurar que esté importado
 import asyncio
+from chromadb.config import Settings
 
 # --- CONFIGURACIÓN ---
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
@@ -83,21 +84,33 @@ exp_collection = None
 
 # --- Conexión a ChromaDB (SIN POBLAR) ---
 try:
-    logger.info(f"Conectando a ChromaDB en ruta persistente: {CHROMA_DB_PATH}")
-    chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-    embedding_fn_connect = GeminiEmbeddingFunction() # Necesario para get_collection
+    # Estas variables vienen del Environment Group de Render
+    S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
+    if not S3_ENDPOINT_URL:
+        raise ValueError("¡ERROR CRÍTICO! S3_ENDPOINT_URL no está configurada.")
 
-    # Intentar OBTENER las colecciones. Falla si no existen (deben crearse con load_chroma.py primero)
+    logger.info(f"Conectando a ChromaDB (modo S3) en endpoint: {S3_ENDPOINT_URL}")
+
+    # ChromaDB usará automáticamente las variables de entorno
+    # AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY que hemos configurado
+    # en el Environment Group para autenticarse con Minio.
+    client_settings = Settings(
+        chroma_api_impl="chromadb.api.segment.SegmentAPI",
+        chroma_db_impl="chromadb.db.impl.duckdb.DuckDB",
+        persist_directory="/tmp/chroma_cache", # Un caché local efímero, no importa
+        s3_bucket_name="chroma-db" # El nombre de nuestro "cubo" de datos en Minio
+    )
+    
+    chroma_client = chromadb.Client(client_settings)
+    embedding_fn_connect = GeminiEmbeddingFunction() 
+
+    # Intentar OBTENER las colecciones desde Minio
     kb_collection = chroma_client.get_collection(ENCYCLOPEDIA_COLLECTION, embedding_function=embedding_fn_connect)
     exp_collection = chroma_client.get_collection(EXPERIENCE_COLLECTION, embedding_function=embedding_fn_connect)
-    logger.info(f"✅ Conectado a colecciones ChromaDB existentes: {ENCYCLOPEDIA_COLLECTION} ({kb_collection.count()} docs), {EXPERIENCE_COLLECTION} ({exp_collection.count()} docs)")
+    logger.info(f"✅ Conectado a colecciones ChromaDB existentes en S3/Minio: {ENCYCLOPEDIA_COLLECTION} ({kb_collection.count()} docs), {EXPERIENCE_COLLECTION} ({exp_collection.count()} docs)")
 
 except Exception as e:
-    # Captura específica si la colección no existe, es un estado esperado antes de correr load_chroma
-    if "does not exist" in str(e):
-         logger.warning(f"Colecciones ChromaDB no encontradas en {CHROMA_DB_PATH}. Deben crearse ejecutando 'load_chroma.py'. Error: {e}")
-    else:
-         logger.error(f"!!!!!!!!!! ERROR CRÍTICO CONECTANDO A CHROMADB !!!!!!!!!!", exc_info=True)
+    logger.error(f"!!!!!!!!!! ERROR CRÍTICO CONECTANDO A CHROMADB (S3/Minio) !!!!!!!!!!", exc_info=True)
     # Establecer a None para que readiness falle si no se puede conectar
     chroma_client = None
     kb_collection = None
