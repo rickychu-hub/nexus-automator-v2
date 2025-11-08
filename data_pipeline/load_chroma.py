@@ -9,6 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions
 import sys # Para evitar errores si se ejecuta fuera de un entorno compatible
 import glob
+from chromadb.api.storage_s3 import S3Storage
 
 
 # --- CONFIGURACIÓN ---
@@ -86,21 +87,38 @@ class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
 def load_data_to_chroma():
     """
     Crea las colecciones de ChromaDB si no existen y las puebla con datos.
-    Se ejecuta una sola vez o cuando se necesite refrescar los datos.
     """
-    logger.info("--- Iniciando Script de Carga de ChromaDB (V6.2 - S3/Minio) ---")
+    logger.info("--- Iniciando Script de Carga de ChromaDB (V6.4 - S3 FORZADO) ---")
     try:
-        logger.info(f"Conectando a ChromaDB (modo S3 por variables de entorno)...")
+        logger.info(f"Conectando a ChromaDB (modo S3 FORZADO)...")
 
-        # ChromaDB  (0.5.x) lee automáticamente las variables de entorno
-        # que hemos configurado en el Environment Group de Render.
-        chroma_client = chromadb.Client() # <--- ¡EL CAMBIO CLAVE!
+        # ¡¡ESTA ES LA CONFIGURACIÓN V6.4!!
+        # Forzamos explícitamente el uso de S3Storage
+        client_settings = Settings(
+            chroma_db_impl="duckdb+parquet",
+            persist_directory="s3://chroma-db" # El bucket que creamos
+        )
+
+        s3_storage = S3Storage(settings=client_settings)
+
+        # Pasamos el storage_api forzado al cliente
+        chroma_client = chromadb.Client(
+            Settings(
+                chroma_api_impl=s3_storage,
+                is_persistent=True
+            )
+        )
+
         embedding_fn = GeminiEmbeddingFunction()
 
-        chroma_client.get_or_create_collection(name="check_bucket_creation")
+        # Comprobamos la conexión
+        chroma_client.heartbeat()
+        logger.info("Conexión con ChromaDB S3 exitosa.")
 
         existing = {c.name for c in chroma_client.list_collections()}
         logger.info(f"Colecciones existentes en S3/Minio: {existing}")
+
+        # ... (el resto de la función sigue igual) ...
 
         batch_size_add = 2000
 

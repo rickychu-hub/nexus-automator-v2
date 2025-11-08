@@ -15,6 +15,7 @@ import copy
 from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions # Asegurar que esté importado
 import asyncio
+from chromadb.api.storage_s3 import S3Storage
 
 
 # --- CONFIGURACIÓN ---
@@ -84,23 +85,30 @@ exp_collection = None
 
 # --- Conexión a ChromaDB (SIN POBLAR) ---
 # --- Conexión a ChromaDB (V6.2 - S3/Minio por variables de entorno) ---
+# --- Conexión a ChromaDB (V6.4 - S3 FORZADO) ---
 try:
-    logger.info(f"Conectando a ChromaDB (modo S3 por variables de entorno)...")
-    
-    # ChromaDB (0.5.x) lee automáticamente las variables de entorno que hemos configurado
-    # en el Environment Group de Render:
-    # - CHROMA_DB_IMPL="duckdb+parquet "
-    # - PERSIST_DIRECTORY="s3://chroma-db"
-    # - S3_ENDPOINT_URL="http://nexus-storage:9000"
-    # - AWS_ACCESS_KEY_ID="nexus_admin"
-    # - AWS_SECRET_ACCESS_KEY="tu_clave_secreta"
-    
-    # El cliente por defecto ahora SÍ se conectará a S3/Minio.
-    chroma_client = chromadb.Client() 
-    
+    logger.info(f"Conectando a ChromaDB (modo S3 FORZADO)...")
+
+    # ¡¡ESTA ES LA CONFIGURACIÓN V6.4!!
+    client_settings = Settings(
+        chroma_db_impl="duckdb+parquet",
+        persist_directory="s3://chroma-db" # El bucket que creamos
+    )
+
+    s3_storage = S3Storage(settings=client_settings)
+
+    chroma_client = chromadb.Client(
+        Settings(
+            chroma_api_impl=s3_storage,
+            is_persistent=True
+        )
+    )
+
     embedding_fn_connect = GeminiEmbeddingFunction()
 
-    # Intentar OBTENER las colecciones desde Minio
+    # Comprobamos la conexión
+    chroma_client.heartbeat()
+
     kb_collection = chroma_client.get_collection(ENCYCLOPEDIA_COLLECTION, embedding_function=embedding_fn_connect)
     exp_collection = chroma_client.get_collection(EXPERIENCE_COLLECTION, embedding_function=embedding_fn_connect)
     logger.info(f"✅ Conectado a colecciones ChromaDB existentes en S3/Minio: {ENCYCLOPEDIA_COLLECTION} ({kb_collection.count()} docs), {EXPERIENCE_COLLECTION} ({exp_collection.count()} docs)")
