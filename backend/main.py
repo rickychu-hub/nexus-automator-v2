@@ -15,7 +15,7 @@ import copy
 from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions # Asegurar que esté importado
 import asyncio
-from chromadb.api.storage_s3 import S3Storage
+
 
 
 # --- CONFIGURACIÓN ---
@@ -86,35 +86,26 @@ exp_collection = None
 # --- Conexión a ChromaDB (SIN POBLAR) ---
 # --- Conexión a ChromaDB (V6.2 - S3/Minio por variables de entorno) ---
 # --- Conexión a ChromaDB (V6.4 - S3 FORZADO) ---
+# --- Conexión a ChromaDB (V7.0 - MODO CLIENTE HTTP) ---
 try:
-    logger.info(f"Conectando a ChromaDB (modo S3 FORZADO)...")
+    CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST")
+    if not CHROMA_HOST:
+        raise ValueError("¡ERROR CRÍTICO! CHROMA_SERVER_HOST no está configurada.")
 
-    # ¡¡ESTA ES LA CONFIGURACIÓN V6.4!!
-    client_settings = Settings(
-        chroma_db_impl="duckdb+parquet",
-        persist_directory="s3://chroma-db" # El bucket que creamos
-    )
+    logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
 
-    s3_storage = S3Storage(settings=client_settings)
+    # Conexión como cliente HTTP al servicio 'nexus-chroma-server'
+    chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=8000)
+    embedding_fn_connect = GeminiEmbeddingFunction() 
 
-    chroma_client = chromadb.Client(
-        Settings(
-            chroma_api_impl=s3_storage,
-            is_persistent=True
-        )
-    )
-
-    embedding_fn_connect = GeminiEmbeddingFunction()
-
-    # Comprobamos la conexión
-    chroma_client.heartbeat()
+    chroma_client.heartbeat() # Prueba de conexión
 
     kb_collection = chroma_client.get_collection(ENCYCLOPEDIA_COLLECTION, embedding_function=embedding_fn_connect)
     exp_collection = chroma_client.get_collection(EXPERIENCE_COLLECTION, embedding_function=embedding_fn_connect)
-    logger.info(f"✅ Conectado a colecciones ChromaDB existentes en S3/Minio: {ENCYCLOPEDIA_COLLECTION} ({kb_collection.count()} docs), {EXPERIENCE_COLLECTION} ({exp_collection.count()} docs)")
+    logger.info(f"✅ Conectado a colecciones ChromaDB existentes en Servidor: {ENCYCLOPEDIA_COLLECTION} ({kb_collection.count()} docs), {EXPERIENCE_COLLECTION} ({exp_collection.count()} docs)")
 
 except Exception as e:
-    logger.error(f"!!!!!!!!!! ERROR CRÍTICO CONECTANDO A CHROMADB (S3/Minio) !!!!!!!!!!", exc_info=True)
+    logger.error(f"!!!!!!!!!! ERROR CRÍTICO CONECTANDO A CHROMADB (Servidor) !!!!!!!!!!", exc_info=True)
     chroma_client = None
     kb_collection = None
     exp_collection = None

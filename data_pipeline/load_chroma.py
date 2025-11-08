@@ -9,7 +9,6 @@ from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions
 import sys # Para evitar errores si se ejecuta fuera de un entorno compatible
 import glob
-from chromadb.api.storage_s3 import S3Storage
 
 
 # --- CONFIGURACIÓN ---
@@ -85,42 +84,27 @@ class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
 
 # --- Lógica Principal de Carga ---
 def load_data_to_chroma():
-    """
-    Crea las colecciones de ChromaDB si no existen y las puebla con datos.
-    """
-    logger.info("--- Iniciando Script de Carga de ChromaDB (V6.4 - S3 FORZADO) ---")
+    logger.info("--- Iniciando Script de Carga de ChromaDB (V7.0 - MODO CLIENTE HTTP) ---")
     try:
-        logger.info(f"Conectando a ChromaDB (modo S3 FORZADO)...")
+        CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST")
+        if not CHROMA_HOST:
+            raise ValueError("¡ERROR CRÍTICO! CHROMA_SERVER_HOST no está configurada.")
 
-        # ¡¡ESTA ES LA CONFIGURACIÓN V6.4!!
-        # Forzamos explícitamente el uso de S3Storage
-        client_settings = Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory="s3://chroma-db" # El bucket que creamos
-        )
+        logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
 
-        s3_storage = S3Storage(settings=client_settings)
-
-        # Pasamos el storage_api forzado al cliente
-        chroma_client = chromadb.Client(
-            Settings(
-                chroma_api_impl=s3_storage,
-                is_persistent=True
-            )
-        )
-
+        # Conexión como cliente HTTP al servicio 'nexus-chroma-server'
+        chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=8000)
         embedding_fn = GeminiEmbeddingFunction()
 
-        # Comprobamos la conexión
-        chroma_client.heartbeat()
-        logger.info("Conexión con ChromaDB S3 exitosa.")
+        chroma_client.heartbeat() # Prueba de conexión
+        logger.info("Conexión con ChromaDB Server exitosa.")
 
         existing = {c.name for c in chroma_client.list_collections()}
-        logger.info(f"Colecciones existentes en S3/Minio: {existing}")
-
-        # ... (el resto de la función sigue igual) ...
+        logger.info(f"Colecciones existentes en Servidor: {existing}")
 
         batch_size_add = 2000
+
+        # ... (el resto de la función sigue igual) ...
 
         # ... (El resto de la función 'load_data_to_chroma' sigue igual) ...
         
