@@ -3,3 +3,4 @@ chromadb==0.5.4
 python-dotenv==1.0.1
 numpy==1.26.4
 boto3
+pyarrow

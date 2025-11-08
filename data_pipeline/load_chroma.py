@@ -97,14 +97,14 @@ def load_data_to_chroma():
             
         logger.info(f"Conectando a ChromaDB (modo S3) en endpoint: {S3_ENDPOINT_URL}")
 
-        # ChromaDB usará automáticamente las variables de entorno
-        # AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY para autenticarse.
+       
+        # Esta es la configuración V6.1 CORRECTA para usar S3/Minio
+    # Boto3 (que ya instalamos) usará automáticamente las variables de entorno
+    # S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY.
         client_settings = Settings(
-            chroma_api_impl="chromadb.api.segment.SegmentAPI",
-            chroma_db_impl="chromadb.db.impl.duckdb.DuckDB",
-            persist_directory="/tmp/chroma_cache", # Caché local efímero
-            s3_bucket_name="chroma-db" # El nombre de nuestro "cubo" de datos en Minio
-        )
+        chroma_db_impl="duckdb+parquet",
+        persist_directory="s3://chroma-db" # Apunta directamente al bucket S3
+    )
     
         chroma_client = chromadb.Client(client_settings)
         embedding_fn = GeminiEmbeddingFunction()

@@ -7,3 +7,4 @@ python-dotenv==1.0.1
 # ¡¡La corrección crítica!!
 numpy==1.26.4
 boto3
+pyarrow
