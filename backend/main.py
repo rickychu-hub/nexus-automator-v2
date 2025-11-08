@@ -89,7 +89,7 @@ try:
     
     # ChromaDB (0.5.x) lee automáticamente las variables de entorno que hemos configurado
     # en el Environment Group de Render:
-    # - CHROMA_DB_IMPL="duckdb+parquet"
+    # - CHROMA_DB_IMPL="duckdb+parquet "
     # - PERSIST_DIRECTORY="s3://chroma-db"
     # - S3_ENDPOINT_URL="http://nexus-storage:9000"
     # - AWS_ACCESS_KEY_ID="nexus_admin"

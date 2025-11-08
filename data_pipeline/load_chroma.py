@@ -92,7 +92,7 @@ def load_data_to_chroma():
     try:
         logger.info(f"Conectando a ChromaDB (modo S3 por variables de entorno)...")
 
-        # ChromaDB (0.5.x) lee automáticamente las variables de entorno
+        # ChromaDB  (0.5.x) lee automáticamente las variables de entorno
         # que hemos configurado en el Environment Group de Render.
         chroma_client = chromadb.Client() # <--- ¡EL CAMBIO CLAVE!
         embedding_fn = GeminiEmbeddingFunction()
