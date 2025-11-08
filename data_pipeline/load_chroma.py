@@ -91,21 +91,20 @@ def load_data_to_chroma():
     logger.info("--- Iniciando Script de Carga de ChromaDB (V6.2 - S3/Minio) ---")
     try:
         logger.info(f"Conectando a ChromaDB (modo S3 por variables de entorno)...")
-        
+
         # ChromaDB (0.5.x) lee automáticamente las variables de entorno
         # que hemos configurado en el Environment Group de Render.
-        chroma_client = chromadb.Client()
+        chroma_client = chromadb.Client() # <--- ¡EL CAMBIO CLAVE!
         embedding_fn = GeminiEmbeddingFunction()
-        
-        # El script ahora también creará el "cubo" (bucket) en Minio si no existe
-        # (Lo forzamos creando una colección de prueba)
+
         chroma_client.get_or_create_collection(name="check_bucket_creation")
-        
+
         existing = {c.name for c in chroma_client.list_collections()}
         logger.info(f"Colecciones existentes en S3/Minio: {existing}")
-        
-        # Definimos el tamaño del lote para añadir a Chroma
+
         batch_size_add = 2000
+
+        # ... (El resto de la función 'load_data_to_chroma' sigue igual) ...
         
         # ... (El resto de la función 'load_data_to_chroma' sigue igual) ...
         # --- Cargar Enciclopedia --- (BLOQUE AÑADIDO Y ACTIVADO)
