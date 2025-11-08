@@ -9,7 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions
 import sys # Para evitar errores si se ejecuta fuera de un entorno compatible
 import glob
-from chromadb.config import Settings
+
 
 # --- CONFIGURACIÓN ---
 # Cargar variables de entorno desde .env en la misma carpeta
@@ -88,28 +88,17 @@ def load_data_to_chroma():
     Crea las colecciones de ChromaDB si no existen y las puebla con datos.
     Se ejecuta una sola vez o cuando se necesite refrescar los datos.
     """
-    logger.info("--- Iniciando Script de Carga de ChromaDB ---")
+    logger.info("--- Iniciando Script de Carga de ChromaDB (V6.2 - S3/Minio) ---")
     try:
-        # Estas variables vienen del Environment Group de Render
-        S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
-        if not S3_ENDPOINT_URL:
-            raise ValueError("¡ERROR CRÍTICO! S3_ENDPOINT_URL no está configurada.")
-            
-        logger.info(f"Conectando a ChromaDB (modo S3) en endpoint: {S3_ENDPOINT_URL}")
-
-       
-        # Esta es la configuración V6.1 CORRECTA para usar S3/Minio
-    # Boto3 (que ya instalamos) usará automáticamente las variables de entorno
-    # S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY.
-        client_settings = Settings(
-        chroma_db_impl="duckdb+parquet",
-        persist_directory="s3://chroma-db" # Apunta directamente al bucket S3
-    )
-    
-        chroma_client = chromadb.Client(client_settings)
+        logger.info(f"Conectando a ChromaDB (modo S3 por variables de entorno)...")
+        
+        # ChromaDB (0.5.x) lee automáticamente las variables de entorno
+        # que hemos configurado en el Environment Group de Render.
+        chroma_client = chromadb.Client()
         embedding_fn = GeminiEmbeddingFunction()
         
         # El script ahora también creará el "cubo" (bucket) en Minio si no existe
+        # (Lo forzamos creando una colección de prueba)
         chroma_client.get_or_create_collection(name="check_bucket_creation")
         
         existing = {c.name for c in chroma_client.list_collections()}
@@ -117,7 +106,8 @@ def load_data_to_chroma():
         
         # Definimos el tamaño del lote para añadir a Chroma
         batch_size_add = 2000
-
+        
+        # ... (El resto de la función 'load_data_to_chroma' sigue igual) ...
         # --- Cargar Enciclopedia --- (BLOQUE AÑADIDO Y ACTIVADO)
         if ENCYCLOPEDIA_COLLECTION not in existing:
             logger.info(f"Creando y poblando '{ENCYCLOPEDIA_COLLECTION}'...")

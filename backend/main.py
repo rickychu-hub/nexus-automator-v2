@@ -15,7 +15,7 @@ import copy
 from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions # Asegurar que esté importado
 import asyncio
-from chromadb.config import Settings
+
 
 # --- CONFIGURACIÓN ---
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
@@ -83,24 +83,22 @@ kb_collection = None
 exp_collection = None
 
 # --- Conexión a ChromaDB (SIN POBLAR) ---
+# --- Conexión a ChromaDB (V6.2 - S3/Minio por variables de entorno) ---
 try:
-    # Estas variables vienen del Environment Group de Render
-    S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
-    if not S3_ENDPOINT_URL:
-        raise ValueError("¡ERROR CRÍTICO! S3_ENDPOINT_URL no está configurada.")
-
-    logger.info(f"Conectando a ChromaDB (modo S3) en endpoint: {S3_ENDPOINT_URL}")
-
-    # Esta es la configuración V6.1 CORRECTA para usar S3/Minio
-    # Boto3 (que ya instalamos) usará automáticamente las variables de entorno
-    # S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY.
-    client_settings = Settings(
-        chroma_db_impl="duckdb+parquet",
-        persist_directory="s3://chroma-db" # Apunta directamente al bucket S3
-    )
+    logger.info(f"Conectando a ChromaDB (modo S3 por variables de entorno)...")
     
-    chroma_client = chromadb.Client(client_settings)
-    embedding_fn_connect = GeminiEmbeddingFunction() 
+    # ChromaDB (0.5.x) lee automáticamente las variables de entorno que hemos configurado
+    # en el Environment Group de Render:
+    # - CHROMA_DB_IMPL="duckdb+parquet"
+    # - PERSIST_DIRECTORY="s3://chroma-db"
+    # - S3_ENDPOINT_URL="http://nexus-storage:9000"
+    # - AWS_ACCESS_KEY_ID="nexus_admin"
+    # - AWS_SECRET_ACCESS_KEY="tu_clave_secreta"
+    
+    # El cliente por defecto ahora SÍ se conectará a S3/Minio.
+    chroma_client = chromadb.Client() 
+    
+    embedding_fn_connect = GeminiEmbeddingFunction()
 
     # Intentar OBTENER las colecciones desde Minio
     kb_collection = chroma_client.get_collection(ENCYCLOPEDIA_COLLECTION, embedding_function=embedding_fn_connect)
@@ -109,7 +107,6 @@ try:
 
 except Exception as e:
     logger.error(f"!!!!!!!!!! ERROR CRÍTICO CONECTANDO A CHROMADB (S3/Minio) !!!!!!!!!!", exc_info=True)
-    # Establecer a None para que readiness falle si no se puede conectar
     chroma_client = None
     kb_collection = None
     exp_collection = None
