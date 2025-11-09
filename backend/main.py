@@ -831,4 +831,44 @@ async def debug_chroma():
         return data
     except Exception as e:
         return {"error": f"Error consultando Chroma: {str(e)}"}
+
+        # --- ENDPOINT DE DEBUG DE API ---
+# Pega esto al final de tu main.py
+
+@app.get("/debug-api")
+async def debug_api():
+    """
+    Endpoint de prueba para verificar si la GOOGLE_API_KEY
+    del backend es válida y puede crear embeddings.
+    """
+    try:
+        logger.info("Iniciando prueba de API en /debug-api...")
+        # Intentamos crear un embedding, la misma operación que falla en el Agente
+        test_embedding = genai.embed_content(
+            model=EMBEDDING_MODEL, 
+            content="Esta es una prueba de API", 
+            task_type="retrieval_query"
+        )
+
+        vector = test_embedding.get('embedding')
+        if vector and len(vector) > 10:
+            logger.info("Prueba de API exitosa.")
+            return {
+                "status": "ÉXITO", 
+                "message": "La API Key es válida y puede generar embeddings.",
+                "vector_preview": vector[:5] 
+            }
+        else:
+            logger.error("La API devolvió una respuesta vacía o inesperada.")
+            return {"status": "FALLO", "message": "La API devolvió una respuesta vacía."}
+
+    except Exception as e:
+        # Si la clave es inválida, aquí es donde caerá
+        logger.error(f"¡FALLO DE API! Error en /debug-api: {str(e)}", exc_info=True)
+        return {
+            "status": "¡¡FALLO CRÍTICO!!", 
+            "message": "La llamada a la API de Google falló.",
+            "error": str(e)
+        }
+# --- FIN DE ENDPOINT DE DEBUG ---
 # --- FIN DE ENDPOINT DE DEBUG ---
