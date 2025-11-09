@@ -87,6 +87,7 @@ exp_collection = None
 # --- Conexión a ChromaDB (V6.2 - S3/Minio por variables de entorno) ---
 # --- Conexión a ChromaDB (V6.4 - S3 FORZADO) ---
 # --- Conexión a ChromaDB (V7.0 - MODO CLIENTE HTTP) ---
+# --- Conexión a ChromaDB (V7.0 - MODO CLIENTE HTTP) ---
 try:
     CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST")
     if not CHROMA_HOST:
@@ -94,7 +95,7 @@ try:
 
     logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
 
-    # Conexión como cliente HTTP al servicio 'nexus-chroma-server'
+    # Conexión como cliente HTTP...
     chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=8000)
     embedding_fn_connect = GeminiEmbeddingFunction() 
 
@@ -746,28 +747,40 @@ class WorkflowRequest(BaseModel): user_prompt: str
 class InterviewRequest(BaseModel): original_prompt: str; questions: list[str] = []; answers: list[str] = []
 
 # --- Evento de Inicio ---
+# --- Evento de Inicio ---
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Aplicación FastAPI iniciada y lista.")
-
-# --- Endpoints ---
-@app.post("/interview/")
-async def handle_interview(request: InterviewRequest):
-    logger.info(f"Petición recibida en /interview/ para: '{request.original_prompt[:50]}...'")
-    if not API_KEY: return {"status": "error", "questions": ["API Key no configurada."]}
+    # ¡Añadimos 'global' para modificar las variables de fuera!
+    global chroma_client, kb_collection, exp_collection
+    
+    logger.info("Evento de inicio: Conectando a ChromaDB...")
+    
+    # --- AHORA PEGA EL BLOQUE CORTADO AQUÍ ---
     try:
-        model = genai.GenerativeModel(GENERATIVE_MODEL)
-        result = agent_interviewer(
-            original_prompt=request.original_prompt,
-            questions=request.questions,
-            answers=request.answers,
-            model=model
-        )
-        return result
-    except Exception as e:
-         logger.error("Error inesperado en /interview/", exc_info=True)
-         return {"status": "error", "questions": ["Error interno procesando la entrevista."]}
+        CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST")
+        if not CHROMA_HOST:
+            raise ValueError("¡ERROR CRÍTICO! CHROMA_SERVER_HOST no está configurada.")
 
+        logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
+
+        # Conexión como cliente HTTP...
+        chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=8000)
+        embedding_fn_connect = GeminiEmbeddingFunction() 
+
+        chroma_client.heartbeat() # Prueba de conexión
+
+        kb_collection = chroma_client.get_collection(ENCYCLOPEDIA_COLLECTION, embedding_function=embedding_fn_connect)
+        exp_collection = chroma_client.get_collection(EXPERIENCE_COLLECTION, embedding_function=embedding_fn_connect)
+        logger.info(f"✅ Conectado a colecciones ChromaDB existentes en Servidor: {ENCYCLOPEDIA_COLLECTION} ({kb_collection.count()} docs), {EXPERIENCE_COLLECTION} ({exp_collection.count()} docs)")
+
+    except Exception as e:
+        logger.error(f"!!!!!!!!!! ERROR CRÍTICO CONECTANDO A CHROMADB (Servidor) !!!!!!!!!!", exc_info=True)
+        chroma_client = None
+        kb_collection = None
+        exp_collection = None
+    # --- FIN DEL BLOQUE PEGADO ---
+    
+    logger.info("Aplicación FastAPI iniciada y lista.") # Este log ya estaba
 # ¡NUEVO ENDPOINT V4.0!
 @app.post("/create-workflow-streaming/")
 async def handle_create_workflow_streaming(request: WorkflowRequest):
