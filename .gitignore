@@ -1,0 +1,5 @@
+# Ignorar todos los archivos de entorno
+.env
+backend/.env
+data_pipeline/.env
+n8n/.env
