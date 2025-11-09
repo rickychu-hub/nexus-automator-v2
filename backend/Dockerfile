@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copia tu archivo de KB para que main.py pueda encontrarlo
+COPY knowledge_base_final_CURATED.json .
+
 # Copia el código de la aplicación
 COPY . .
 

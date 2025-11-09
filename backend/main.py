@@ -809,3 +809,26 @@ def read_root():
     return {"status": "Nexus Automator API is running"}
 
 # --- (Fin del archivo main.py) ---
+# --- ENDPOINT DE DEBUG TEMPORAL ---
+# Pega esto al final de tu main.py
+
+@app.get("/debug-chroma")
+async def debug_chroma():
+    """
+    Endpoint de prueba para inspeccionar 
+    directamente los vectores en ChromaDB.
+    """
+    global kb_collection
+    if not kb_collection:
+        return {"error": "kb_collection no está inicializada."}
+
+    try:
+        # Obtenemos los 5 primeros items Y sus embeddings
+        data = kb_collection.get(
+            limit=5,
+            include=["embeddings", "documents"] 
+        )
+        return data
+    except Exception as e:
+        return {"error": f"Error consultando Chroma: {str(e)}"}
+# --- FIN DE ENDPOINT DE DEBUG ---
