@@ -770,9 +770,7 @@ async def handle_interview(request: InterviewRequest):
         return {"status": "clarified", "briefing": f"Error: {e}"}
 
 # --- (Aquí es donde empieza el @app.post("/create-workflow-streaming/") que ya tenías) ---
-@app.post("/create-workflow-streaming/")
-async def handle_create_workflow_streaming(request: WorkflowRequest):
-    # ... (el resto del código sigue igual)
+
 @app.post("/create-workflow-streaming/")
 async def handle_create_workflow_streaming(request: WorkflowRequest):
     logger.info(f"Petición V4.0 recibida en /create-workflow-streaming/ para: '{request.user_prompt[:50]}...'")
