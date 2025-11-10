@@ -83,33 +83,7 @@ chroma_client = None
 kb_collection = None
 exp_collection = None
 
-# --- Conexión a ChromaDB (SIN POBLAR) ---
-# --- Conexión a ChromaDB (V6.2 - S3/Minio por variables de entorno) ---
-# --- Conexión a ChromaDB (V6.4 - S3 FORZADO) ---
-# --- Conexión a ChromaDB (V7.0 - MODO CLIENTE HTTP) ---
-# --- Conexión a ChromaDB (V7.0 - MODO CLIENTE HTTP) ---
-try:
-    CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST")
-    if not CHROMA_HOST:
-        raise ValueError("¡ERROR CRÍTICO! CHROMA_SERVER_HOST no está configurada.")
 
-    logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
-
-    # Conexión como cliente HTTP...
-    chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=8000)
-    embedding_fn_connect = GeminiEmbeddingFunction() 
-
-    chroma_client.heartbeat() # Prueba de conexión
-
-    kb_collection = chroma_client.get_collection(ENCYCLOPEDIA_COLLECTION, embedding_function=embedding_fn_connect)
-    exp_collection = chroma_client.get_collection(EXPERIENCE_COLLECTION, embedding_function=embedding_fn_connect)
-    logger.info(f"✅ Conectado a colecciones ChromaDB existentes en Servidor: {ENCYCLOPEDIA_COLLECTION} ({kb_collection.count()} docs), {EXPERIENCE_COLLECTION} ({exp_collection.count()} docs)")
-
-except Exception as e:
-    logger.error(f"!!!!!!!!!! ERROR CRÍTICO CONECTANDO A CHROMADB (Servidor) !!!!!!!!!!", exc_info=True)
-    chroma_client = None
-    kb_collection = None
-    exp_collection = None
 
 
 # --- CARGA DE BASE DE CONOCIMIENTO EN MEMORIA (Rápida) ---
@@ -648,12 +622,6 @@ def final_assembler(nodes_with_params, connections, user_request):
     return json.dumps(final_workflow, indent=2, ensure_ascii=False)
 
 
-# --- ORQUESTADOR PRINCIPAL ---
-# -----------------------------------------------------------------
-# -----------------------------------------------------------------
-# Pega este bloque V4.2 al final de tu script (reemplazando el antiguo)
-# -----------------------------------------------------------------
-
 # --- ORQUESTADOR PRINCIPAL (V4.0 CON STREAMING) ---
 async def stream_generation_pipeline(final_prompt: str):
     """
@@ -782,6 +750,29 @@ async def startup_event():
     
     logger.info("Aplicación FastAPI iniciada y lista.") # Este log ya estaba
 # ¡NUEVO ENDPOINT V4.0!
+@app.post("/interview/")
+async def handle_interview(request: InterviewRequest):
+    """
+    Maneja la lógica de la entrevista con el Agente Entrevistador.
+    """
+    logger.info(f"Petición recibida en /interview/ para: '{request.original_prompt[:50]}...'")
+    try:
+        model = genai.GenerativeModel(GENERATIVE_MODEL) 
+        response_data = agent_interviewer(
+            request.original_prompt, 
+            request.questions, 
+            request.answers, 
+            model
+        )
+        return response_data
+    except Exception as e:
+        logger.error(f"Error fatal en /interview/: {e}", exc_info=True)
+        return {"status": "clarified", "briefing": f"Error: {e}"}
+
+# --- (Aquí es donde empieza el @app.post("/create-workflow-streaming/") que ya tenías) ---
+@app.post("/create-workflow-streaming/")
+async def handle_create_workflow_streaming(request: WorkflowRequest):
+    # ... (el resto del código sigue igual)
 @app.post("/create-workflow-streaming/")
 async def handle_create_workflow_streaming(request: WorkflowRequest):
     logger.info(f"Petición V4.0 recibida en /create-workflow-streaming/ para: '{request.user_prompt[:50]}...'")
@@ -821,10 +812,6 @@ def readinessz():
 def read_root():
     return {"status": "Nexus Automator API is running"}
 
-# --- (Fin del archivo main.py) ---
-# --- ENDPOINT DE DEBUG TEMPORAL ---
-# Pega esto al final de tu main.py
-
 @app.get("/debug-chroma")
 async def debug_chroma():
     """
@@ -846,7 +833,7 @@ async def debug_chroma():
         return {"error": f"Error consultando Chroma: {str(e)}"}
 
         # --- ENDPOINT DE DEBUG DE API ---
-# Pega esto al final de tu main.py
+
 
 @app.get("/debug-api")
 async def debug_api():
@@ -883,5 +870,3 @@ async def debug_api():
             "message": "La llamada a la API de Google falló.",
             "error": str(e)
         }
-# --- FIN DE ENDPOINT DE DEBUG ---
-# --- FIN DE ENDPOINT DE DEBUG ---
