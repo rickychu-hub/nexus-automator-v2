@@ -308,14 +308,12 @@ def agent_investigator_v1_fallback(user_request):
 
 # AGENTE ARQUITECTO
 def agent_architect(investigation_results, user_request, knowledge_base, model):
-    logger.info("Iniciando Agente Arquitecto...")
+    logger.info("Iniciando Agente Arquitecto (V4 - Modo Configurador-Jefe)...")
     candidate_node_ids = investigation_results.get("candidate_nodes", [])
     case_studies = investigation_results.get("case_studies", [])
     if not candidate_node_ids:
          logger.warning("Agente Arquitecto: lista vacía de nodos candidatos.")
 
-    # --- INICIO DE CAMBIOS ---
-    # 1. Ahora pasamos TAMBIÉN las 'properties' (el esquema) al Arquitecto
     candidate_details = []
     for nid in candidate_node_ids:
          node_info = knowledge_base.get(nid.lower()) 
@@ -323,135 +321,90 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
              candidate_details.append({
                  "nodeId_EXACTO_A_USAR": nid,
                  "descripcion": node_info.get('description', 'Sin descripción.'),
-                 "properties": node_info.get('properties', {}) # ¡¡NUEVO!!
+                 "properties": node_info.get('properties', {}) 
              })
          else:
               logger.warning(f"Nodo '{nid}' no encontrado en KB en memoria.")
-    # --- FIN DE CAMBIOS ---
 
-    # 2. El prompt se actualiza para USAR las 'properties'
+    # --- INICIO DE CAMBIOS ---
+    # El prompt se ha simplificado RADICALMENTE.
+    # Ya no pide "pruebas", pide los "parámetros" directamente.
     prompt = (
-        f"Actúas como Arquitecto n8n de élite. Tu trabajo es diseñar un plan lógico Y crear pruebas de validación precisas.\n\n"
+        f"Actúas como Arquitecto y Configurador n8n de élite. Tu trabajo es diseñar un plan lógico y configurar los parámetros de cada nodo.\n\n"
         f"**Petición:** \"{user_request}\"\n"
         f"**Casos:**\n```json\n{json.dumps(case_studies, indent=2, ensure_ascii=False)}\n```\n"
-        f"**Nodos Disponibles (¡CON SU ESQUEMA 'properties' REAL!):**\n"
+        f"**Nodos Disponibles (CON SU ESQUEMA 'properties' REAL):**\n"
         f"```json\n{json.dumps(candidate_details, indent=2, ensure_ascii=False)}\n```\n"
         
-        f"--- TAREA 1: El Plan Lógico (Intención) ---\n"
-        f"Diseña el plan de nodos. PARA CADA NODO, incluye:\n"
-        f"1. `nodeId`: El ID exacto del nodo (ej: 'n8n-nodes-base.zohoCrm').\n"
-        f"2. `unique_id`: Un nombre clave único (ej: 'buscar_lead').\n"
-        f"3. `purpose`: Una descripción clara de la intención (ej: 'Buscar un Lead existente').\n\n"
+        f"--- TAREA: Plan Lógico y Configuración ---\n"
+        f"Diseña el plan de nodos. PARA CADA NODO, debes incluir:\n"
+        f"1. `nodeId`: El ID exacto del nodo.\n"
+        f"2. `purpose`: Una descripción clara de la intención.\n"
+        f"3. `parameters`: Un objeto JSON con la CONFIGURACIÓN PRECISA del nodo.\n\n"
         
-        f"--- TAREA 2: Las Pruebas de Validación (Implementación) ---\n"
-        f"Crea pruebas para los pasos CRÍTICOS basándote en el ESQUEMA 'properties' del nodo.\n"
-        f"1. `unique_id_to_test`: El `unique_id` del nodo que quieres probar.\n"
-        f"2. `parameter_to_check`: La ruta del parámetro (ej: 'resource', 'sheetName.value'). **¡DEBE EXISTIR EN 'properties'**!\n"
-        f"3. `expected_value`: El valor que DEBE tener (ej: 'contact', 'append'). **¡DEBE SER VÁLIDO según 'properties'**!\n\n"
-
-        f"--- ¡¡REGLA DE PRUEBAS IMPORTANTE!! ---\n"
-        f"¡NO ALUCINES! Tus pruebas DEBEN ser 100% precisas según el JSON de 'properties' de cada nodo. "
-        f"Si 'properties' dice que la operación de Google Sheets se llama 'append', tu prueba DEBE esperar 'append', NO 'appendRow'.\n\n"
+        f"--- REGLAS DE CONFIGURACIÓN ---\n"
+        f"1. **Usa el Esquema:** Tus `parameters` DEBEN ser 100% precisos según el JSON de 'properties' de cada nodo.\n"
+        f"   (ej: Si 'properties' dice que el nombre de la hoja es `\"sheetName\": {{\"mode\": \"name\", ...}}`, DEBES usar esa estructura.)\n"
+        f"2. **Usa la Intención:** Usa el `purpose` y la `Petición` para decidir los VALORES.\n"
+        f"   (ej: Si el `purpose` es 'Guardar en hoja LinkedIn', el valor de 'sheetName.value' DEBE ser 'Leads de LinkedIn'.)\n"
+        f"3. **Usa Expresiones:** Para datos de nodos anteriores, usa expresiones (ej: `{{{{$json.source}}}}`). Asume que los datos vienen del nodo anterior o del Trigger (`$json` o `$node[\"nombre_nodo\"].json`).\n"
+        f"4. **No Alucines:** NO inventes parámetros que no existan en 'properties'. NO incluyas credenciales (usa `authentication: \"oAuth2\"` si es necesario).\n\n"
         
-        f"--- Formato de Salida Obligatorio (SOLO JSON Objeto) ---\n"
+        f"--- Formato de Salida Obligatorio (SOLO JSON Lista) ---\n"
         f"```json\n"
-        f"{{\n"
-        f'  "logical_plan": [\n'
-        f'    {{"nodeId": "n8n-nodes-base.googlesheets", "unique_id": "guardar_linkedin", "purpose": "Guardar en hoja LinkedIn."}}\n'
-        f'  ],\n'
-        f'  "validation_tests": [\n'
-        f'    {{"unique_id_to_test": "guardar_linkedin", "parameter_to_check": "sheetName.value", "expected_value": "Leads de LinkedIn"}},\n'
-        f'    {{"unique_id_to_test": "guardar_linkedin", "parameter_to_check": "operation", "expected_value": "append"}}\n'
-        f'  ]\n'
-        f'}}\n'
+        f"[\n"
+        f"  {{\n"
+        f'    "nodeId": "n8n-nodes-base.if",\n'
+        f'    "purpose": "Verificar si la fuente es LinkedIn.",\n'
+        f'    "parameters": {{\n'
+        f'      "conditions": [ {{ "value1": "{{{{$json.source}}}}", "operation": "stringEqual", "value2": "LinkedIn" }} ],\n'
+        f'      "options": {{ "ignoreCase": true, "looseTypeValidation": true }}\n'
+        f'    }}\n'
+        f'  }},\n'
+        f'  {{\n'
+        f'    "nodeId": "n8n-nodes-base.googlesheets",\n'
+        f'    "purpose": "Guardar en hoja LinkedIn.",\n'
+        f'    "parameters": {{\n'
+        f'      "authentication": "oAuth2",\n'
+        f'      "resource": "sheet",\n'
+        f'      "operation": "append",\n'
+        f'      "documentId": {{ "mode": "id", "value": "YOUR_DOCUMENT_ID_HERE" }},\n'
+        f'      "sheetName": {{ "mode": "name", "value": "Leads de LinkedIn" }},\n'
+        f'      "dataMode": "defineBelow",\n'
+        f'      "fieldsUi": [\n'
+        f'        {{ "fieldId": "Nombre", "fieldValue": "{{{{$json.nombre}}}}" }},\n'
+        f'        {{ "fieldId": "Email", "fieldValue": "{{{{$json.email}}}}" }}\n'
+        f'      ]\n'
+        f'    }}\n'
+        f'  }}\n'
+        f"]\n"
         f"```"
     )
+    # --- FIN DE CAMBIOS ---
     
     try:
         if not isinstance(model, genai.GenerativeModel): raise TypeError("Modelo IA no válido")
         response = model.generate_content(prompt)
         
-        json_str_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', response.text, re.DOTALL)
+        # 3. El 're.search' ahora busca una LISTA []
+        json_str_match = re.search(r'```json\s*(\[[\sS]*?\])\s*```', response.text, re.DOTALL)
         
         if json_str_match:
-            architect_output = json.loads(json_str_match.group(1))
-            logger.info(f"Plan de arquitecto generado:\n{json.dumps(architect_output, indent=2)}")
+            # 4. El 'logical_plan' es ahora la salida directa
+            logical_plan = json.loads(json_str_match.group(1))
+            logger.info(f"Plan de arquitecto (con parámetros) generado:\n{json.dumps(logical_plan, indent=2)}")
             
-            if not isinstance(architect_output, dict) or "logical_plan" not in architect_output or "validation_tests" not in architect_output:
-                 logger.error(f"El arquitecto no devolvió la estructura 'logical_plan' y 'validation_tests'.")
+            if not isinstance(logical_plan, list) or not all(isinstance(item, dict) and 'nodeId' in item and 'parameters' in item for item in logical_plan):
+                 logger.error(f"El arquitecto no devolvió la estructura [{{'nodeId': ..., 'parameters': ...}}]")
                  return None
             
-            return architect_output
+            return logical_plan # Devolvemos el plan CON parámetros
         else:
             logger.error(f"Arquitecto no devolvió JSON válido. Respuesta: {response.text}")
             return None
     except Exception as e:
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
-# --- FIN DEL NUEVO AGENTE ---
-
-# AGENTE VALIDADOR
-def agent_validator(nodes_with_params, validation_tests):
-    """
-    Valida que los nodos configurados cumplan con las pruebas de validación
-    generadas por el Arquitecto.
-    """
-    logger.info("Iniciando Agente Validador...")
-    errors = []
-    
-    if not validation_tests:
-        logger.info("No hay pruebas de validación. Saltando validación.")
-        return {"status": "passed"}
-    
-    if not nodes_with_params:
-        logger.error("No hay nodos para validar.")
-        return {"status": "failed", "errors": ["No hay nodos configurados para validar."]}
-    
-    # Crear un diccionario de nodos por unique_id para búsqueda rápida
-    nodes_by_unique_id = {}
-    for node in nodes_with_params:
-        unique_id = node.get('unique_id_from_architect') or node.get('name')
-        if unique_id:
-            nodes_by_unique_id[unique_id] = node
-    
-    # Validar cada prueba
-    for test in validation_tests:
-        test_id = test.get('unique_id_to_test')
-        param_path = test.get('parameter_to_check', '')
-        expected_value = test.get('expected_value')
-        
-        if not test_id:
-            errors.append("Prueba de validación sin 'unique_id_to_test'.")
-            continue
-        
-        # Buscar el nodo por unique_id
-        node_to_check = nodes_by_unique_id.get(test_id)
-        
-        if not node_to_check:
-            errors.append(f"Prueba fallida: El plan requería un paso '{test_id}', pero no se encontró.")
-            continue
-        
-        # Navegar por el JSON de parámetros (ej: 'resource' o 'options.operation')
-        try:
-            actual_value = node_to_check['parameters']
-            for key in param_path.split('.'):
-                actual_value = actual_value[key]
-        except (KeyError, TypeError):
-            actual_value = None # No se encontró el parámetro
-        
-        if actual_value != expected_value:
-            errors.append(
-                f"Prueba Lógica fallida en nodo '{node_to_check.get('name', test_id)}':\n"
-                f"  > El Arquitecto esperaba que '{param_path}' fuera '{expected_value}'.\n"
-                f"  > Pero el Configurador lo estableció como '{actual_value}'.\n"
-            )
-    
-    if errors:
-        logger.error(f"Validación interna FALLIDA: {len(errors)} errores encontrados.")
-        return {"status": "failed", "errors": errors}
-    
-    logger.info("✅ Validación interna superada. El flujo es lógicamente correcto.")
-    return {"status": "passed"}
 
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
@@ -500,129 +453,29 @@ def agent_technical_writer(nodes_to_document, user_request, model):
     
     return nodes_to_document
 
-# AGENTE CONFIGURADOR
-def agent_parameter_configurator(nodes, user_request, investigation_results, model, knowledge_base, validation_tests=None):
-    logger.info("Iniciando Agente Configurador...")
-    case_studies = investigation_results.get("case_studies", [])
-    if not nodes:
-         logger.warning("Lista de nodos para configurar está vacía.")
-         return []
-    
-    for i, node in enumerate(nodes):
-        node_type = node.get('type', '')
-        node_name = node.get('name', f"nodo_{i+1}")
-        
-        if 'Trigger' in node_type:
-            logger.info(f"Saltando Trigger: {node_name}")
-            continue
-            
-        node_id_key = node_type.lower()
-        node_manual_data = knowledge_base.get(node_id_key, {})
-        configurable_params = node_manual_data.get('properties')
-        
-        if not configurable_params:
-            logger.warning(f"Sin propiedades en KB para '{node_name}' ({node_id_key}).")
-            node['parameters'] = {}
-            continue
-            
-        context_summary = []
-        prev_node_name = None
-        if i > 0 and nodes[i-1]:
-             prev_node = nodes[i-1]
-             prev_node_name = prev_node.get('name')
-             context_summary.append(f"Paso {i}: {prev_node_name} ({prev_node.get('type')})")
-        else: context_summary.append("Primer nodo post-Trigger.")
-        workflow_context = "\n".join(context_summary)
-        
-        # --- INICIO DE CAMBIOS ---
-        # 1. Obtenemos el 'purpose' inyectado por el Builder
-        node_purpose = node.get('purpose', 'Sin propósito claro.')
-        # --- FIN DE CAMBIOS ---
-
-        last_error = ""
-        for attempt in range(2):
-            expression_example = ""
-            if prev_node_name: expression_example = f" (ej: `{{{{$node[\"{prev_node_name}\"].json.id}}}}`)"
-            
-            # --- INICIO DE CAMBIOS ---
-            # 2. El prompt se actualiza para incluir el 'purpose' y la 'INSTRUCCIÓN CRÍTICA'
-            prompt = (
-                f"Configura parámetros JSON para nodo '{node_name}' ({node_type}).\n"
-                f"**Petición General:** {user_request}\n"
-                f"**Nodo Anterior:** {workflow_context}\n"
-                f"**Propósito Específico de este Nodo:** \"{node_purpose}\"\n\n"
-                
-                f"**¡¡INSTRUCCIÓN CRÍTICA!!** Usa el `Propósito Específico` para decidir los parámetros.\n"
-                f"* Si el propósito es 'Crear nuevo Contacto', DEBES usar `\"resource\": \"contact\"` y `\"operation\": \"create\"`.\n"
-                f"* Si el propósito es 'Buscar Lead existente', DEBES usar `\"resource\": \"lead\"` y `\"operation\": \"get\"`.\n"
-                f"* Si el propósito es 'Crear nuevo Lead', DEBES usar `\"resource\": \"lead\"` y `\"operation\": \"create\"`.\n\n"
-                
-                f"**Guía KB (Propiedades del Nodo):**\n{json.dumps(configurable_params, indent=2)}\n"
-                f"**Ejemplos (Contexto de otros flujos):**\n{json.dumps(case_studies, indent=2)}\n"
-                f"{last_error}\n\n"
-                f"Devuelve SOLO JSON con parámetros probables. Usa expresiones `{{{{...}}}}`{expression_example} para datos previos. NO incluyas credenciales/IDs."
-            )
-            # --- FIN DE CAMBIOS ---
-            
-            try:
-                if not isinstance(model, genai.GenerativeModel): raise TypeError("Modelo IA no válido")
-                response = model.generate_content(prompt)
-                json_str_match = re.search(r'```json\s*(\{.*?\})\s*```', response.text, re.DOTALL)
-                
-                if not json_str_match: 
-                    params_json = json.loads(response.text.strip())
-                else: 
-                    params_json = json.loads(json_str_match.group(1))
-                    
-                if not isinstance(params_json, dict): raise ValueError("Respuesta no es diccionario JSON.")
-                
-                node['parameters'] = params_json
-                logger.info(f"Parámetros configurados '{node_name}' (Intento {attempt+1})")
-                break
-                
-            except Exception as e:
-                logger.warning(f"Error config '{node_name}' (Intento {attempt+1}): {e}")
-                last_error = f"Intento anterior fallido ({e}). Revisa JSON/expresiones."
-                if attempt == 1: node['parameters'] = {"error_config_auto": f"{e}"}
-                
-        time.sleep(1) # Mantenemos la pausa
-        
-    return nodes
 
 
 # BUILDER (V5.0 - Arreglo de "Nodo Huérfano")
 def build_nodes_from_plan(logical_plan, knowledge_base):
-    """
-    Construye la estructura de nodos y conexiones a partir del plan lógico del Arquitecto.
-    V5.0: Arregla el bug de encadenamiento de nodos en ramas (ej. IF -> SendGrid -> Slack).
-    """
+    logger.info("Construyendo estructura desde plan (Modo Ensamblaje V6)...")
     if not isinstance(logical_plan, list):
         logger.error("build_nodes_from_plan recibió un plan inválido.")
         return [], {}
 
-    logger.info("Construyendo estructura desde plan...")
     nodes, connections, node_counts = [], {}, {}
 
     def process_plan_recursive(plan, parent_node_name=None, branch_type=None):
-        """
-        Función auxiliar recursiva para procesar el plan anidado.
-        """
         nonlocal node_counts
-
-        # last_node_in_chain rastrea el nodo anterior DENTRO de este bucle
-        # Inicia siendo el nodo padre (ej. el 'IF' o el 'Webhook')
         last_node_in_chain = parent_node_name 
 
         for i, step in enumerate(plan):
             node_id = step.get('nodeId')
-            
-            # --- INICIO DE CAMBIOS ---
-            # 1. Obtenemos el 'purpose' y 'unique_id' del plan del Arquitecto
-            node_purpose = step.get('purpose', 'Sin propósito definido')
-            node_unique_id = step.get('unique_id', f'step_{len(nodes)}')
-            # --- FIN DE CAMBIOS ---
-            
             if not node_id: continue
+
+            # --- INICIO DE CAMBIOS ---
+            # 1. Obtenemos los parámetros DIRECTAMENTE del plan
+            node_parameters = step.get('parameters', {})
+            # --- FIN DE CAMBIOS ---
 
             node_id_lower = node_id.lower().strip()
             node_template = copy.deepcopy(knowledge_base.get(node_id_lower))
@@ -631,72 +484,50 @@ def build_nodes_from_plan(logical_plan, knowledge_base):
                 logger.warning(f"Nodo '{node_id}' no encontrado en KB. Omitiendo.")
                 continue
 
-            # Crear nombre único (ej. googlesheets_1, googlesheets_2)
-            base_name = node_template.get('name', node_id.split('.')[-1]) # Usa el 'name' de KB
+            base_name = node_template.get('name', node_id.split('.')[-1])
             count = node_counts.get(base_name, 0) + 1
             node_counts[base_name] = count
             current_node_name = f"{base_name}_{count}"
 
             # Actualizar el template del nodo
-            node_template['id'] = f"node_{len(nodes)}" # ID único temporal de Streamlit
+            node_template['id'] = f"node_{len(nodes)}" 
             node_template['name'] = current_node_name
             
             # --- INICIO DE CAMBIOS ---
-            # 2. Inyectamos los nuevos datos en el objeto del nodo
-            node_template['purpose'] = node_purpose
-            node_template['unique_id_from_architect'] = node_unique_id
+            # 2. Inyectamos los parámetros pre-configurados
+            node_template['parameters'] = node_parameters
+            # 3. (Ya no necesitamos 'purpose' o 'unique_id')
             # --- FIN DE CAMBIOS ---
             
             nodes.append(node_template)
 
-            # --- ¡LÓGICA DE CONEXIÓN V5.0! ---
+            # --- Lógica de conexión (sigue igual) ---
             if last_node_in_chain:
-
-                # Decidimos CÓMO conectar:
-                # Es una "conexión de rama" (ej. IF -> Nodo) si:
-                # 1. Es el primer nodo del bucle (i == 0)
-                # 2. Y se nos pasó un 'branch_type' (es decir, venimos de un IF)
                 is_first_node_in_branch = (i == 0) and branch_type
-
                 if is_first_node_in_branch:
-                    # Conexión especial (Rama True/False)
                     branch_index = 0 if branch_type == 'true' else 1
                     connections.setdefault(last_node_in_chain, {"main": [[], []]})
-
-                    # Asegurarse de que ambas ramas existan
                     while len(connections[last_node_in_chain]["main"]) <= branch_index:
                         connections[last_node_in_chain]["main"].append([])
-
                     connections[last_node_in_chain]["main"][branch_index].append({"node": current_node_name, "type": "main"})
-                    logger.debug(f"Conectando rama '{branch_type}': '{last_node_in_chain}' -> '{current_node_name}'")
-
                 else:
-                    # Conexión estándar (Lineal o en Cadena)
-                    # (ej. Webhook -> Sheets, o SendGrid -> Slack)
                     connections.setdefault(last_node_in_chain, {"main": [[]]})
-
                     if not connections[last_node_in_chain]["main"]:
-                        connections[last_node_in_chain]["main"].append([]) # Asegurar que main[0] existe
-
+                        connections[last_node_in_chain]["main"].append([])
                     connections[last_node_in_chain]["main"][0].append({"node": current_node_name, "type": "main"})
-                    logger.debug(f"Conectando lineal (en cadena): '{last_node_in_chain}' -> '{current_node_name}'")
-
-            # ACTUALIZAMOS el "último nodo" para la SIGUIENTE iteración del bucle
+            
             last_node_in_chain = current_node_name
 
-            # --- Recursión para ramas anidadas ---
+            # --- Recursión (sigue igual) ---
             if 'branches' in step and isinstance(step['branches'], dict):
                 for branch, sub_plan in step['branches'].items():
                     if isinstance(sub_plan, list):
-                        # El 'parent_node_name' para la recursión es este nodo actual
                         process_plan_recursive(sub_plan, parent_node_name=current_node_name, branch_type=branch)
                     else: 
                         logger.warning(f"Rama '{branch}' nodo '{current_node_name}' inválida.")
 
-    # Iniciar el proceso recursivo con el plan de nivel superior
     process_plan_recursive(logical_plan)
-
-    logger.info("✅ Estructura pre-construida.")
+    logger.info("✅ Estructura pre-construida (V6).")
     return nodes, connections
 
 # ASSEMBLER
@@ -769,11 +600,7 @@ def final_assembler(nodes_with_params, connections, user_request):
 # --- ORQUESTADOR PRINCIPAL (V4.0 CON STREAMING) ---
 # --- ORQUESTADOR PRINCIPAL (V4.0 CON STREAMING) ---
 async def stream_generation_pipeline(final_prompt: str):
-    """
-    Este es el nuevo orquestador V4.0.
-    Usa 'yield' para devolver actualizaciones de estado en tiempo real.
-    """
-    logger.info("Iniciando pipeline de generación (V4.0 Stream)...")
+    logger.info("Iniciando pipeline de generación (V6 - Arquitecto Unificado)...")
     global knowledge_base_global
     knowledge_base = knowledge_base_global
 
@@ -790,7 +617,7 @@ async def stream_generation_pipeline(final_prompt: str):
             yield f"ERROR: No se pudo cargar el modelo de IA {GENERATIVE_MODEL}."
             return
 
-        await asyncio.sleep(0.1) # Permite que el 'yield' se envíe
+        await asyncio.sleep(0.1) 
 
         # --- Paso 1: Investigador ---
         yield "Paso 1: Iniciando Agente Investigador... 🕵️\n"
@@ -801,17 +628,16 @@ async def stream_generation_pipeline(final_prompt: str):
         yield f"Investigador encontró {len(investigation_results.get('candidate_nodes', []))} nodos y {len(investigation_results.get('case_studies', []))} casos.\n"
         await asyncio.sleep(0.1)
 
-        # --- Paso 2: Arquitecto ---
-        yield "Paso 2: Iniciando Agente Arquitecto... 🏛️\n"
-        architect_output = agent_architect(investigation_results, final_prompt, knowledge_base, model)
-        if not architect_output:
+        # --- INICIO DE CAMBIOS ---
+        
+        # --- Paso 2: Arquitecto (ahora también Configura) ---
+        yield "Paso 2: Iniciando Super-Arquitecto (Plan y Configuración)... 🏛️🛠️\n"
+        # 1. 'logical_plan' ahora contiene los parámetros
+        logical_plan = agent_architect(investigation_results, final_prompt, knowledge_base, model)
+        if not logical_plan:
             yield "ERROR: El Arquitecto no pudo generar un plan."
             return
-        
-        logical_plan = architect_output.get("logical_plan")
-        validation_tests = architect_output.get("validation_tests", []) 
-        
-        yield "Arquitecto generó el plan lógico y las pruebas de validación.\n"
+        yield "Arquitecto generó el plan lógico y los parámetros.\n"
         await asyncio.sleep(0.1)
 
         # --- Paso 3: Builder ---
@@ -819,58 +645,32 @@ async def stream_generation_pipeline(final_prompt: str):
         if not nodes_template:
             yield "ERROR: El Builder no pudo construir nodos del plan."
             return
-        yield f"Builder construyó el esqueleto de {len(nodes_template)} nodos.\n"
+        # 'nodes_template' ahora contiene los parámetros, así que lo renombramos
+        nodes_with_params = nodes_template 
+        yield f"Builder construyó el esqueleto de {len(nodes_with_params)} nodos.\n"
         await asyncio.sleep(0.1)
 
-        # --- Paso 4: Configurador ---
-        yield "Paso 4: Iniciando Agente Configurador... 🛠️\n"
+        # --- PASO 4 y 5 ELIMINADOS ---
+        # (El Configurador y el Validador ya no son necesarios)
         
-        # --- ¡¡INICIO DEL CAMBIO!! ---
-        # Ahora le pasamos las 'validation_tests' al Configurador
-        nodes_with_params = agent_parameter_configurator(
-            nodes_template, 
-            final_prompt, 
-            investigation_results, 
-            model, 
-            knowledge_base,
-            validation_tests  # <--- ¡¡NUEVO ARGUMENTO!!
-        )
-        # --- ¡¡FIN DEL CAMBIO!! ---
-        
-        yield "Configurador rellenó los parámetros.\n"
-        await asyncio.sleep(0.1)
-
-        # --- ¡NUEVO PASO 5: VALIDACIÓN! ---
-        yield "Paso 5: Validando lógica interna... 🔍\n"
-        validation_result = agent_validator(nodes_with_params, validation_tests)
-        
-        if validation_result["status"] == "failed":
-            errors_str = "\n".join(validation_result["errors"])
-            logger.error(f"PIPELINE DETENIDO. Fallo de validación: {errors_str}")
-            yield f"ERROR: El plan falló la autocorrección. Errores:\n{errors_str}"
-            return 
-            
-        yield "✅ Validación interna superada. El flujo es lógicamente correcto.\n"
-        await asyncio.sleep(0.1)
-        # --- FIN DEL NUEVO PASO ---
-
-        # --- Paso 6: Redactor Técnico (era el Paso 5) ---
-        yield "Paso 6: Iniciando Agente Redactor Técnico... 📝\n"
+        # --- Paso 4: Redactor Técnico (era el 6) ---
+        yield "Paso 4: Iniciando Agente Redactor Técnico... 📝\n"
         nodes_with_instructions = agent_technical_writer(nodes_with_params, final_prompt, model)
         yield "Redactor escribió las notas de ayuda.\n"
         await asyncio.sleep(0.1)
 
-        # --- Paso 7: Ensamblador (era el Paso 6) ---
-        yield "Paso 7: Ensamblando workflow final... 🏗️\n"
+        # --- Paso 5: Ensamblador (era el 7) ---
+        yield "Paso 5: Ensamblando workflow final... 🏗️\n"
         final_workflow_str = final_assembler(nodes_with_instructions, connections, final_prompt)
         final_summary = "Workflow generado. Revisa las notas para pasos finales." 
+        # --- FIN DE CAMBIOS ---
 
         final_workflow_json = json.loads(final_workflow_str)
 
-        logger.info("PIPELINE DE GENERACIÓN (V4.0 Stream) COMPLETADO.")
+        logger.info("PIPELINE DE GENERACIÓN (V6) COMPLETADO.")
 
     except Exception as e:
-        logger.error(f"Error crítico en V4.0 Stream Pipeline: {e}", exc_info=True)
+        logger.error(f"Error crítico en V6 Stream Pipeline: {e}", exc_info=True)
         yield f"ERROR: Ocurrió un fallo general en el pipeline: {e}"
         return
 
