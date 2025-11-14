@@ -397,7 +397,7 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
     except Exception as e:
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
-        
+
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
     """
@@ -711,25 +711,6 @@ async def startup_event():
     
     logger.info("Aplicación FastAPI iniciada y lista.") # Este log ya estaba
 # ¡NUEVO ENDPOINT V4.0!
-@app.post("/interview/")
-async def handle_interview(request: InterviewRequest):
-    """
-    Maneja la lógica de la entrevista con el Agente Entrevistador.
-    """
-    logger.info(f"Petición recibida en /interview/ para: '{request.original_prompt[:50]}...'")
-    try:
-        model = genai.GenerativeModel(GENERATIVE_MODEL) 
-        response_data = agent_interviewer(
-            request.original_prompt, 
-            request.questions, 
-            request.answers, 
-            model
-        )
-        return response_data
-    except Exception as e:
-        logger.error(f"Error fatal en /interview/: {e}", exc_info=True)
-        return {"status": "clarified", "briefing": f"Error: {e}"}
-
 @app.post("/interview/")
 async def handle_interview(request: InterviewRequest):
     """
