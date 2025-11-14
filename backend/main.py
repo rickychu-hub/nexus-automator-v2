@@ -388,105 +388,6 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
     except Exception as e:
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
-        
-# AGENTE REDACTOR TÉCNICO
-def agent_technical_writer(nodes_to_document, user_request, model):
-    # ... (Código completo de agent_technical_writer que ya tenías)
-    logger.info("Iniciando Agente Redactor Técnico (Manual de Vuelo)...")
-    if not nodes_to_document:
-        logger.warning("Lista de nodos para documentar está vacía.")
-        return []
-    workflow_summary = [f"- Paso {i+1}: {node.get('name')} ({node.get('type')})" for i, node in enumerate(nodes_to_document)]
-    workflow_plan_str = "\n".join(workflow_summary)
-
-    for node in nodes_to_document:
-        node_type = node.get('type', '')
-        node_name = node.get('name', 'NodoDesconocido')
-        if 'Trigger' in node_type:
-             node['instructions'] = ("**Propósito:** Iniciar el flujo automáticamente.\n"
-                                     "**Tareas autocompletadas:** Nodo configurado.\n"
-                                     "**Tareas pendientes:** Verifica credenciales y evento.\n"
-                                     "**Consejo:** Prueba en modo manual.")
-             logger.info(f"Nota estándar para Trigger: {node_name}")
-             continue
-
-        prompt = (f"Eres Asistente n8n. Redacta nota práctica para nodo '{node_name}' ({node_type}).\n"
-                  f"**Petición:** {user_request}\n"
-                  f"**Plan:**\n{workflow_plan_str}\n"
-                  f"**Config IA (LOS PARÁMETROS QUE HE RELLENADO):**\n{json.dumps(node.get('parameters', {}), indent=2)}\n\n"
-                  f"--- FORMATO OBLIGATORIO (texto plano) ---\n"
-                  f"**Propósito:** [Objetivo en 1 frase]\n"
-                  f"**Tareas autocompletadas:** [Qué configuró IA (ej. expresiones, lógica)]\n"
-                  f"**Tareas pendientes para ti:** [¡¡IMPORTANTE!! Analiza la 'Config IA' de arriba. Si ves CUALQUIER valor como 'YOUR_..._HERE' o similar, enumera explícitamente CADA campo que el usuario debe rellenar manualmente (ej. 'Rellena el spreadsheetId', 'Configura las credenciales'). Si no hay nada pendiente, escribe 'Ninguna.'.]\n"
-                  f"**Consejo del Co-Piloto:** [Tip corto]\n")
-        try:
-            if not isinstance(model, genai.GenerativeModel): raise TypeError("Modelo IA no válido")
-            response = model.generate_content(prompt)
-            node['instructions'] = response.text.strip()
-            logger.info(f"Nota generada para '{node_name}'")
-        except Exception as e:
-            node['instructions'] = f"Error generando nota: {e}"
-            logger.error(f"Error generando nota para '{node_name}': {e}", exc_info=True)
-        time.sleep(1) # Pausa
-    return nodes_to_document
-
-
-# --- ¡NUEVO AGENTE DE VALIDACIÓN! ---
-def agent_validator(nodes_with_params, validation_tests):
-    """
-    Comprueba el trabajo del Configurador contra las pruebas del Arquitecto.
-    Esto es el Bucle de Validación Interna, implementado como Python puro.
-    """
-    logger.info("Iniciando Agente Validador (Control de Calidad)...")
-    errors = []
-    
-    if not validation_tests:
-        logger.warning("Validador no recibió pruebas del Arquitecto. Omitiendo.")
-        return {"status": "passed"} # No hay pruebas, así que pasa
-
-    # Mapear nodos por su ID único para fácil acceso
-    nodes_map = {
-        node.get('unique_id_from_architect'): node 
-        for node in nodes_with_params 
-        if 'unique_id_from_architect' in node
-    }
-
-    for test in validation_tests:
-        test_id = test.get('unique_id_to_test')
-        param_path = test.get('parameter_to_check')
-        expected_value = test.get('expected_value')
-
-        if not test_id or not param_path or expected_value is None:
-            logger.warning(f"Prueba de validación mal formada: {test}")
-            continue
-
-        node_to_check = nodes_map.get(test_id)
-
-        if not node_to_check:
-            errors.append(f"Prueba fallida: El plan requería un paso '{test_id}', pero no se encontró.")
-            continue
-        
-        # Navegar por el JSON de parámetros (ej: 'resource' o 'options.operation')
-        try:
-            actual_value = node_to_check['parameters']
-            for key in param_path.split('.'):
-                actual_value = actual_value[key]
-        except (KeyError, TypeError):
-            actual_value = None # No se encontró el parámetro
-
-        if actual_value != expected_value:
-            errors.append(
-                f"Prueba Lógica fallida en nodo '{node_to_check.get('name', test_id)}':\n"
-                f"  > El Arquitecto esperaba que '{param_path}' fuera '{expected_value}'.\n"
-                f"  > Pero el Configurador lo estableció como '{actual_value}'.\n"
-            )
-
-    if errors:
-        logger.error(f"Validación interna FALLIDA: {len(errors)} errores encontrados.")
-        return {"status": "failed", "errors": errors}
-    
-    logger.info("✅ Validación interna superada. El flujo es lógicamente correcto.")
-    return {"status": "passed"}
 # --- FIN DEL NUEVO AGENTE ---
 # AGENTE CONFIGURADOR
 def agent_parameter_configurator(nodes, user_request, investigation_results, model, knowledge_base):
@@ -755,6 +656,7 @@ def final_assembler(nodes_with_params, connections, user_request):
 
 
 # --- ORQUESTADOR PRINCIPAL (V4.0 CON STREAMING) ---
+# --- ORQUESTADOR PRINCIPAL (V4.0 CON STREAMING) ---
 async def stream_generation_pipeline(final_prompt: str):
     """
     Este es el nuevo orquestador V4.0.
@@ -788,25 +690,20 @@ async def stream_generation_pipeline(final_prompt: str):
         yield f"Investigador encontró {len(investigation_results.get('candidate_nodes', []))} nodos y {len(investigation_results.get('case_studies', []))} casos.\n"
         await asyncio.sleep(0.1)
 
-        # --- INICIO DE CAMBIOS ---
-        
         # --- Paso 2: Arquitecto ---
         yield "Paso 2: Iniciando Agente Arquitecto... 🏛️\n"
-        # 1. 'architect_output' es ahora el objeto JSON completo
         architect_output = agent_architect(investigation_results, final_prompt, knowledge_base, model)
         if not architect_output:
             yield "ERROR: El Arquitecto no pudo generar un plan."
             return
         
-        # 2. Desempaquetamos el plan y las pruebas
         logical_plan = architect_output.get("logical_plan")
-        validation_tests = architect_output.get("validation_tests", []) # Lista de pruebas
+        validation_tests = architect_output.get("validation_tests", []) 
         
         yield "Arquitecto generó el plan lógico y las pruebas de validación.\n"
         await asyncio.sleep(0.1)
 
         # --- Paso 3: Builder ---
-        # 3. Solo pasamos el 'logical_plan'
         nodes_template, connections = build_nodes_from_plan(logical_plan, knowledge_base)
         if not nodes_template:
             yield "ERROR: El Builder no pudo construir nodos del plan."
@@ -816,7 +713,19 @@ async def stream_generation_pipeline(final_prompt: str):
 
         # --- Paso 4: Configurador ---
         yield "Paso 4: Iniciando Agente Configurador... 🛠️\n"
-        nodes_with_params = agent_parameter_configurator(nodes_template, final_prompt, investigation_results, model, knowledge_base)
+        
+        # --- ¡¡INICIO DEL CAMBIO!! ---
+        # Ahora le pasamos las 'validation_tests' al Configurador
+        nodes_with_params = agent_parameter_configurator(
+            nodes_template, 
+            final_prompt, 
+            investigation_results, 
+            model, 
+            knowledge_base,
+            validation_tests  # <--- ¡¡NUEVO ARGUMENTO!!
+        )
+        # --- ¡¡FIN DEL CAMBIO!! ---
+        
         yield "Configurador rellenó los parámetros.\n"
         await asyncio.sleep(0.1)
 
@@ -825,13 +734,12 @@ async def stream_generation_pipeline(final_prompt: str):
         validation_result = agent_validator(nodes_with_params, validation_tests)
         
         if validation_result["status"] == "failed":
-            # Si falla, detenemos el pipeline y reportamos el error
             errors_str = "\n".join(validation_result["errors"])
             logger.error(f"PIPELINE DETENIDO. Fallo de validación: {errors_str}")
             yield f"ERROR: El plan falló la autocorrección. Errores:\n{errors_str}"
-            return # ¡Detenemos todo!
+            return 
             
-        yield "Validación interna superada. El flujo es lógicamente correcto.\n"
+        yield "✅ Validación interna superada. El flujo es lógicamente correcto.\n"
         await asyncio.sleep(0.1)
         # --- FIN DEL NUEVO PASO ---
 
@@ -844,9 +752,7 @@ async def stream_generation_pipeline(final_prompt: str):
         # --- Paso 7: Ensamblador (era el Paso 6) ---
         yield "Paso 7: Ensamblando workflow final... 🏗️\n"
         final_workflow_str = final_assembler(nodes_with_instructions, connections, final_prompt)
-        final_summary = "Workflow generado. Revisa las notas para pasos finales." # Resumen simple
-
-        # --- FIN DE CAMBIOS ---
+        final_summary = "Workflow generado. Revisa las notas para pasos finales." 
 
         final_workflow_json = json.loads(final_workflow_str)
 
@@ -857,13 +763,11 @@ async def stream_generation_pipeline(final_prompt: str):
         yield f"ERROR: Ocurrió un fallo general en el pipeline: {e}"
         return
 
-    # El ÚLTIMO yield debe ser el objeto JSON final, empaquetado como string
     final_output_object = {
         "workflow_json": final_workflow_json,
         "executive_summary": final_summary
     }
     yield json.dumps(final_output_object)
-
 
 # --- CÓDIGO DE LA API (FastAPI) ---
 app = FastAPI(title="Nexus Automator API")
