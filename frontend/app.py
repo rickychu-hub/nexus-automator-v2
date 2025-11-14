@@ -147,6 +147,7 @@ with main_ui.container():
             st.rerun()
 
 # --- LÓGICA DE ESTADOS (ENTREVISTA) ---
+# --- LÓGICA DE ESTADOS (ENTREVISTA) ---
 if st.session_state.conversation_state == "interviewing":
     with st.spinner("🧠 El Co-Piloto está pensando..."):
         try:
@@ -155,7 +156,22 @@ if st.session_state.conversation_state == "interviewing":
             data = response.json()
 
             if data.get("status") == "clarified":
-                st.session_state.final_briefing = data.get("briefing")
+                
+                # --- ¡INICIO DEL ARREGLO! (Manejo de Briefing Objeto/String) ---
+                briefing_data = data.get("briefing")
+
+                if isinstance(briefing_data, dict):
+                    # Si la IA devuelve un JSON (como en tu log), lo convertimos a un string
+                    st.session_state.final_briefing = json.dumps(briefing_data, indent=2, ensure_ascii=False)
+                elif isinstance(briefing_data, str):
+                    # Si la IA devuelve un string (como debería), lo usamos
+                    st.session_state.final_briefing = briefing_data
+                else:
+                    # Fallback por si es None o algo raro
+                    st.session_state.final_briefing = str(briefing_data or "Briefing no disponible.")
+                
+                # --- ¡FIN DEL ARREGLO! ---
+
                 st.session_state.conversation_state = "generating"
                 st.rerun()
 
