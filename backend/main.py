@@ -314,52 +314,54 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
     if not candidate_node_ids:
          logger.warning("Agente Arquitecto: lista vacía de nodos candidatos.")
 
+    # --- INICIO DE CAMBIOS ---
+    # 1. Ahora pasamos TAMBIÉN las 'properties' (el esquema) al Arquitecto
     candidate_details = []
     for nid in candidate_node_ids:
-         node_info = knowledge_base.get(nid.lower()) # KB ya está en minúsculas
+         node_info = knowledge_base.get(nid.lower()) 
          if node_info:
              candidate_details.append({
-                 "nodeId_EXACTO_A_USAR": nid, # Usar ID original para el plan
-                 "descripcion": node_info.get('description', 'Sin descripción.')
+                 "nodeId_EXACTO_A_USAR": nid,
+                 "descripcion": node_info.get('description', 'Sin descripción.'),
+                 "properties": node_info.get('properties', {}) # ¡¡NUEVO!!
              })
          else:
               logger.warning(f"Nodo '{nid}' no encontrado en KB en memoria.")
+    # --- FIN DE CAMBIOS ---
 
-   # REEMPLAZA el 'prompt' del agent_architect por este:
+    # 2. El prompt se actualiza para USAR las 'properties'
     prompt = (
-        f"Actúas como Arquitecto n8n de élite. Tu trabajo es diseñar un plan lógico Y crear pruebas de validación.\n\n"
+        f"Actúas como Arquitecto n8n de élite. Tu trabajo es diseñar un plan lógico Y crear pruebas de validación precisas.\n\n"
         f"**Petición:** \"{user_request}\"\n"
         f"**Casos:**\n```json\n{json.dumps(case_studies, indent=2, ensure_ascii=False)}\n```\n"
-        f"**Nodos Disponibles:**\n"
+        f"**Nodos Disponibles (¡CON SU ESQUEMA 'properties' REAL!):**\n"
         f"```json\n{json.dumps(candidate_details, indent=2, ensure_ascii=False)}\n```\n"
         
-        f"--- TAREA 1: El Plan Lógico ---\n"
-        f"Diseña el plan de nodos. PARA CADA NODO, debes incluir:\n"
+        f"--- TAREA 1: El Plan Lógico (Intención) ---\n"
+        f"Diseña el plan de nodos. PARA CADA NODO, incluye:\n"
         f"1. `nodeId`: El ID exacto del nodo (ej: 'n8n-nodes-base.zohoCrm').\n"
-        f"2. `unique_id`: Un nombre clave único para este paso (ej: 'buscar_lead', 'crear_contacto').\n"
-        f"3. `purpose`: Una descripción clara de la intención (ej: 'Buscar un Lead existente', 'Crear un nuevo Contacto').\n\n"
+        f"2. `unique_id`: Un nombre clave único (ej: 'buscar_lead').\n"
+        f"3. `purpose`: Una descripción clara de la intención (ej: 'Buscar un Lead existente').\n\n"
         
-        f"--- TAREA 2: Las Pruebas de Validación ---\n"
-        f"Crea pruebas para los pasos CRÍTICOS (especialmente nodos como Zoho, Salesforce, etc.).\n"
+        f"--- TAREA 2: Las Pruebas de Validación (Implementación) ---\n"
+        f"Crea pruebas para los pasos CRÍTICOS basándote en el ESQUEMA 'properties' del nodo.\n"
         f"1. `unique_id_to_test`: El `unique_id` del nodo que quieres probar.\n"
-        f"2. `parameter_to_check`: La ruta del parámetro que debe ser correcto (ej: 'resource', 'operation').\n"
-        f"3. `expected_value`: El valor que DEBE tener (ej: 'contact', 'lead', 'create').\n\n"
-        
-        f"--- ¡¡REGLA DE PRUEBAS IMPORTANTE!! ---\n"
-        f"Algunos nodos (como Google Sheets) usan objetos complejos. Si quieres comprobar el nombre de una hoja, la ruta correcta es 'sheetName.value', NO 'sheetName'.\n\n"
+        f"2. `parameter_to_check`: La ruta del parámetro (ej: 'resource', 'sheetName.value'). **¡DEBE EXISTIR EN 'properties'**!\n"
+        f"3. `expected_value`: El valor que DEBE tener (ej: 'contact', 'append'). **¡DEBE SER VÁLIDO según 'properties'**!\n\n"
 
+        f"--- ¡¡REGLA DE PRUEBAS IMPORTANTE!! ---\n"
+        f"¡NO ALUCINES! Tus pruebas DEBEN ser 100% precisas según el JSON de 'properties' de cada nodo. "
+        f"Si 'properties' dice que la operación de Google Sheets se llama 'append', tu prueba DEBE esperar 'append', NO 'appendRow'.\n\n"
+        
         f"--- Formato de Salida Obligatorio (SOLO JSON Objeto) ---\n"
         f"```json\n"
         f"{{\n"
         f'  "logical_plan": [\n'
-        f'    {{"nodeId": "n8n-nodes-base.webhook", "unique_id": "recibir_lead", "purpose": "Recibir datos del lead."}},\n'
-        f'    {{"nodeId": "n8n-nodes-base.if", "unique_id": "verificar_fuente", "purpose": "Verificar si la fuente es LinkedIn."}},\n'
-        f'    {{"nodeId": "n8n-nodes-base.googlesheets", "unique_id": "guardar_linkedin", "purpose": "Guardar en hoja LinkedIn."}},\n'
-        f'    {{"nodeId": "n8n-nodes-base.googlesheets", "unique_id": "guardar_otros", "purpose": "Guardar en hoja Otros."}}\n'
+        f'    {{"nodeId": "n8n-nodes-base.googlesheets", "unique_id": "guardar_linkedin", "purpose": "Guardar en hoja LinkedIn."}}\n'
         f'  ],\n'
         f'  "validation_tests": [\n'
         f'    {{"unique_id_to_test": "guardar_linkedin", "parameter_to_check": "sheetName.value", "expected_value": "Leads de LinkedIn"}},\n'
-        f'    {{"unique_id_to_test": "guardar_otros", "parameter_to_check": "sheetName.value", "expected_value": "Otros Leads"}}\n'
+        f'    {{"unique_id_to_test": "guardar_linkedin", "parameter_to_check": "operation", "expected_value": "append"}}\n'
         f'  ]\n'
         f'}}\n'
         f"```"
@@ -369,27 +371,24 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
         if not isinstance(model, genai.GenerativeModel): raise TypeError("Modelo IA no válido")
         response = model.generate_content(prompt)
         
-        # 2. El 're.search' ahora SOLO busca un objeto {}. Se elimina el fallback a [].
         json_str_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', response.text, re.DOTALL)
         
         if json_str_match:
-            # 3. La lógica de parseo y retorno se actualiza para manejar el nuevo objeto
             architect_output = json.loads(json_str_match.group(1))
             logger.info(f"Plan de arquitecto generado:\n{json.dumps(architect_output, indent=2)}")
             
-            # Validamos que el output tenga las claves que esperamos
             if not isinstance(architect_output, dict) or "logical_plan" not in architect_output or "validation_tests" not in architect_output:
                  logger.error(f"El arquitecto no devolvió la estructura 'logical_plan' y 'validation_tests'.")
                  return None
             
-            return architect_output # Devolvemos el objeto completo
+            return architect_output
         else:
             logger.error(f"Arquitecto no devolvió JSON válido. Respuesta: {response.text}")
             return None
     except Exception as e:
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
-    # --- FIN DE CAMBIOS ---
+        
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
     # ... (Código completo de agent_technical_writer que ya tenías)
