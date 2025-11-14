@@ -60,7 +60,6 @@ class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
         # Por seguridad, mantenemos la llamada real pero con logging.
         embeddings = []
         batch_size = 100
-        total_batches = (len(texts) + batch_size - 1) // batch_size
         for i in range(0, len(texts), batch_size):
             # ... (Implementación completa de __call__ que tenías) ...
             current_batch_num = i // batch_size + 1
@@ -84,18 +83,12 @@ kb_collection = None
 exp_collection = None
 
 
-
-
 # --- CARGA DE BASE DE CONOCIMIENTO EN MEMORIA (Rápida) ---
 knowledge_base_global = {}
 try:
     if os.path.exists(ENRICHED_KB_PATH):
         with open(ENRICHED_KB_PATH, 'r', encoding='utf-8') as f:
             kb_original = json.load(f)
-
-            # --- ¡AQUÍ ESTÁ EL ARREGLO V2.5! ---
-            # Inyectamos el 'type' (con mayúsculas/minúsculas correctas)
-            # DENTRO del template, ANTES de hacer la clave minúscula.
             knowledge_base_global = {}
             for k, v in kb_original.items():
                 v['type'] = k  # Inyecta el 'type' (ej: "n8n-nodes-base.googleSheets")
@@ -111,10 +104,7 @@ except Exception as e:
 
 # --- AGENTES (Definiciones completas) ---
 
-# AGENTE ENTREVISTADOR (Simplificado Anti-Bucle)
-# -----------------------------------------------------------------
-# REEMPLAZA TU FUNCIÓN 'agent_interviewer' ANTIGUA POR ESTA COMPLETA
-# -----------------------------------------------------------------
+
 def agent_interviewer(original_prompt, questions, answers, model):
     logger.info("Iniciando Agente Entrevistador (V2.3 con consolidación segura)...")
     conversation_history = ""
@@ -733,7 +723,26 @@ async def handle_interview(request: InterviewRequest):
         logger.error(f"Error fatal en /interview/: {e}", exc_info=True)
         return {"status": "clarified", "briefing": f"Error: {e}"}
 
-# --- (Aquí es donde empieza el @app.post("/create-workflow-streaming/") que ya tenías) ---
+@app.post("/interview/")
+async def handle_interview(request: InterviewRequest):
+    """
+    Maneja la lógica de la entrevista con el Agente Entrevistador.
+    """
+    logger.info(f"Petición recibida en /interview/ para: '{request.original_prompt[:50]}...'")
+    try:
+        model = genai.GenerativeModel(GENERATIVE_MODEL) 
+        response_data = agent_interviewer(
+            request.original_prompt, 
+            request.questions, 
+            request.answers, 
+            model
+        )
+        return response_data
+    except Exception as e:
+        logger.error(f"Error fatal en /interview/: {e}", exc_info=True)
+        return {"status": "clarified", "briefing": f"Error: {e}"}
+
+
 
 @app.post("/create-workflow-streaming/")
 async def handle_create_workflow_streaming(request: WorkflowRequest):
