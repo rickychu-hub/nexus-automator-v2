@@ -397,7 +397,7 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
     except Exception as e:
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
-
+        
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
     """
