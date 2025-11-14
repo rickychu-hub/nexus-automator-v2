@@ -389,8 +389,119 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
 # --- FIN DEL NUEVO AGENTE ---
+
+# AGENTE VALIDADOR
+def agent_validator(nodes_with_params, validation_tests):
+    """
+    Valida que los nodos configurados cumplan con las pruebas de validación
+    generadas por el Arquitecto.
+    """
+    logger.info("Iniciando Agente Validador...")
+    errors = []
+    
+    if not validation_tests:
+        logger.info("No hay pruebas de validación. Saltando validación.")
+        return {"status": "passed"}
+    
+    if not nodes_with_params:
+        logger.error("No hay nodos para validar.")
+        return {"status": "failed", "errors": ["No hay nodos configurados para validar."]}
+    
+    # Crear un diccionario de nodos por unique_id para búsqueda rápida
+    nodes_by_unique_id = {}
+    for node in nodes_with_params:
+        unique_id = node.get('unique_id_from_architect') or node.get('name')
+        if unique_id:
+            nodes_by_unique_id[unique_id] = node
+    
+    # Validar cada prueba
+    for test in validation_tests:
+        test_id = test.get('unique_id_to_test')
+        param_path = test.get('parameter_to_check', '')
+        expected_value = test.get('expected_value')
+        
+        if not test_id:
+            errors.append("Prueba de validación sin 'unique_id_to_test'.")
+            continue
+        
+        # Buscar el nodo por unique_id
+        node_to_check = nodes_by_unique_id.get(test_id)
+        
+        if not node_to_check:
+            errors.append(f"Prueba fallida: El plan requería un paso '{test_id}', pero no se encontró.")
+            continue
+        
+        # Navegar por el JSON de parámetros (ej: 'resource' o 'options.operation')
+        try:
+            actual_value = node_to_check['parameters']
+            for key in param_path.split('.'):
+                actual_value = actual_value[key]
+        except (KeyError, TypeError):
+            actual_value = None # No se encontró el parámetro
+        
+        if actual_value != expected_value:
+            errors.append(
+                f"Prueba Lógica fallida en nodo '{node_to_check.get('name', test_id)}':\n"
+                f"  > El Arquitecto esperaba que '{param_path}' fuera '{expected_value}'.\n"
+                f"  > Pero el Configurador lo estableció como '{actual_value}'.\n"
+            )
+    
+    if errors:
+        logger.error(f"Validación interna FALLIDA: {len(errors)} errores encontrados.")
+        return {"status": "failed", "errors": errors}
+    
+    logger.info("✅ Validación interna superada. El flujo es lógicamente correcto.")
+    return {"status": "passed"}
+
+# AGENTE REDACTOR TÉCNICO
+def agent_technical_writer(nodes_to_document, user_request, model):
+    """
+    Genera instrucciones técnicas y notas de ayuda para cada nodo del workflow.
+    """
+    logger.info("Iniciando Agente Redactor Técnico (Manual de Vuelo)...")
+    if not nodes_to_document:
+        logger.warning("Lista de nodos para documentar está vacía.")
+        return []
+    
+    workflow_summary = [f"- Paso {i+1}: {node.get('name')} ({node.get('type')})" for i, node in enumerate(nodes_to_document)]
+    workflow_plan_str = "\n".join(workflow_summary)
+    
+    for node in nodes_to_document:
+        node_type = node.get('type', '')
+        node_name = node.get('name', 'NodoDesconocido')
+        
+        if 'Trigger' in node_type:
+            node['instructions'] = ("**Propósito:** Iniciar el flujo automáticamente.\n"
+                                    "**Tareas autocompletadas:** Nodo configurado.\n"
+                                    "**Tareas pendientes:** Verifica credenciales y evento.\n"
+                                    "**Consejo:** Prueba en modo manual.")
+            logger.info(f"Nota estándar para Trigger: {node_name}")
+            continue
+        
+        prompt = (f"Eres Asistente n8n. Redacta nota práctica para nodo '{node_name}' ({node_type}).\n"
+                  f"**Petición:** {user_request}\n"
+                  f"**Plan:**\n{workflow_plan_str}\n"
+                  f"**Config IA (LOS PARÁMETROS QUE HE RELLENADO):**\n{json.dumps(node.get('parameters', {}), indent=2)}\n\n"
+                  f"--- FORMATO OBLIGATORIO (texto plano) ---\n"
+                  f"**Propósito:** [Objetivo en 1 frase]\n"
+                  f"**Tareas autocompletadas:** [Qué configuró IA (ej. expresiones, lógica)]\n"
+                  f"**Tareas pendientes para ti:** [¡¡IMPORTANTE!! Analiza la 'Config IA' de arriba. Si ves CUALQUIER valor como 'YOUR_..._HERE' o similar, enumera explícitamente CADA campo que el usuario debe rellenar manualmente (ej. 'Rellena el spreadsheetId', 'Configura las credenciales'). Si no hay nada pendiente, escribe 'Ninguna.'.]\n"
+                  f"**Consejo del Co-Piloto:** [Tip corto]\n")
+        
+        try:
+            if not isinstance(model, genai.GenerativeModel):
+                raise TypeError("Modelo IA no válido")
+            response = model.generate_content(prompt)
+            node['instructions'] = response.text.strip()
+            logger.info(f"Nota generada para '{node_name}'")
+        except Exception as e:
+            logger.warning(f"Error generando nota para '{node_name}': {e}")
+            node['instructions'] = f"**Propósito:** Configurar nodo {node_name}.\n**Tareas pendientes:** Revisa la configuración manualmente.\n**Error:** {str(e)}"
+    
+    return nodes_to_document
+
 # AGENTE CONFIGURADOR
-def agent_parameter_configurator(nodes, user_request, investigation_results, model, knowledge_base):
+def agent_parameter_configurator(nodes, user_request, investigation_results, model, knowledge_base, validation_tests=None):
     logger.info("Iniciando Agente Configurador...")
     case_studies = investigation_results.get("case_studies", [])
     if not nodes:
