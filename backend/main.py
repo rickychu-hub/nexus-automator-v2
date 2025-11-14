@@ -375,6 +375,13 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
         # Esta es la línea clave: busca una LISTA [...]
         json_str_match = re.search(r'```json\s*(\[[\sS]*?\])\s*```', response.text, re.DOTALL)
         
+        # --- ¡INICIO DEL CAMBIO! (Parseo Robusto) ---
+        # Añadimos un fallback por si la IA olvida el '```json' o añade texto
+        if not json_str_match:
+            logger.warning("El arquitecto no usó '```json'. Buscando JSON genérico [ ... ]...")
+            json_str_match = re.search(r'(\[[\sS]*\])', response.text, re.DOTALL)
+        # --- FIN DEL CAMBIO! ---
+
         if json_str_match:
             logical_plan = json.loads(json_str_match.group(1))
             logger.info(f"Plan de arquitecto (con parámetros) generado:\n{json.dumps(logical_plan, indent=2)}")
