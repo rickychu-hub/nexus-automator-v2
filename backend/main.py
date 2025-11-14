@@ -325,8 +325,7 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
          else:
               logger.warning(f"Nodo '{nid}' no encontrado en KB en memoria.")
 
-    # --- INICIO DE CAMBIOS ---
-    # 1. El prompt se actualiza para pedir el plan Y las pruebas
+   # REEMPLAZA el 'prompt' del agent_architect por este:
     prompt = (
         f"Actúas como Arquitecto n8n de élite. Tu trabajo es diseñar un plan lógico Y crear pruebas de validación.\n\n"
         f"**Petición:** \"{user_request}\"\n"
@@ -346,18 +345,21 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
         f"2. `parameter_to_check`: La ruta del parámetro que debe ser correcto (ej: 'resource', 'operation').\n"
         f"3. `expected_value`: El valor que DEBE tener (ej: 'contact', 'lead', 'create').\n\n"
         
+        f"--- ¡¡REGLA DE PRUEBAS IMPORTANTE!! ---\n"
+        f"Algunos nodos (como Google Sheets) usan objetos complejos. Si quieres comprobar el nombre de una hoja, la ruta correcta es 'sheetName.value', NO 'sheetName'.\n\n"
+
         f"--- Formato de Salida Obligatorio (SOLO JSON Objeto) ---\n"
         f"```json\n"
         f"{{\n"
         f'  "logical_plan": [\n'
-        f'    {{"nodeId": "n8n-nodes-base.zohoCrm", "unique_id": "buscar_lead", "purpose": "Buscar Lead existente."}},\n'
-        f'    {{"nodeId": "n8n-nodes-base.if", "unique_id": "si_no_hay_lead", "purpose": "Si no se encuentra Lead..."}},\n'
-        f'    {{"nodeId": "n8n-nodes-base.zohoCrm", "unique_id": "crear_contacto", "purpose": "Crear nuevo Contacto."}}\n'
+        f'    {{"nodeId": "n8n-nodes-base.webhook", "unique_id": "recibir_lead", "purpose": "Recibir datos del lead."}},\n'
+        f'    {{"nodeId": "n8n-nodes-base.if", "unique_id": "verificar_fuente", "purpose": "Verificar si la fuente es LinkedIn."}},\n'
+        f'    {{"nodeId": "n8n-nodes-base.googlesheets", "unique_id": "guardar_linkedin", "purpose": "Guardar en hoja LinkedIn."}},\n'
+        f'    {{"nodeId": "n8n-nodes-base.googlesheets", "unique_id": "guardar_otros", "purpose": "Guardar en hoja Otros."}}\n'
         f'  ],\n'
         f'  "validation_tests": [\n'
-        f'    {{"unique_id_to_test": "buscar_lead", "parameter_to_check": "resource", "expected_value": "lead"}},\n'
-        f'    {{"unique_id_to_test": "crear_contacto", "parameter_to_check": "resource", "expected_value": "contact"}},\n'
-        f'    {{"unique_id_to_test": "crear_contacto", "parameter_to_check": "operation", "expected_value": "create"}}\n'
+        f'    {{"unique_id_to_test": "guardar_linkedin", "parameter_to_check": "sheetName.value", "expected_value": "Leads de LinkedIn"}},\n'
+        f'    {{"unique_id_to_test": "guardar_otros", "parameter_to_check": "sheetName.value", "expected_value": "Otros Leads"}}\n'
         f'  ]\n'
         f'}}\n'
         f"```"
