@@ -373,13 +373,29 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
         response = model.generate_content(prompt)
         
         # Esta es la línea clave: busca una LISTA [...]
-        json_str_match = re.search(r'```json\s*(\[[\sS]*?\])\s*```', response.text, re.DOTALL)
-        
-        # --- ¡INICIO DEL CAMBIO! (Parseo Robusto) ---
-        # Añadimos un fallback por si la IA olvida el '```json' o añade texto
+        json_str_match = re.search(r'```json\s*(\[[\s\S]*?\])\s*```', response.text, re.DOTALL)
+
         if not json_str_match:
             logger.warning("El arquitecto no usó '```json'. Buscando JSON genérico [ ... ]...")
-            json_str_match = re.search(r'(\[[\sS]*\])', response.text, re.DOTALL)
+            json_str_match = re.search(r'(\[[\s\S]*\])', response.text, re.DOTALL)
+        
+        # --- Fallback ultra simple ---
+        if not json_str_match:
+            logger.warning("Fallback ultra-simple: buscando primer '[' y último ']'.")
+            text = response.text
+            start = text.find('[')
+            end = text.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                candidate = text[start:end+1]
+                try:
+                    logical_plan = json.loads(candidate)
+                    logger.info("Fallback simple funcionó, JSON parseado correctamente.")
+                    return logical_plan
+                except Exception as e:
+                    logger.error(f"Fallback simple no pudo parsear el JSON: {e}")
+            return None
+
+
         # --- FIN DEL CAMBIO! ---
 
         if json_str_match:
@@ -397,7 +413,6 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
     except Exception as e:
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
-
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
     """
