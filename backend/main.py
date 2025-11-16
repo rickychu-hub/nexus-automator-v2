@@ -434,16 +434,15 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
     """
-    Genera instrucciones técnicas y notas claras para cada nodo del workflow,
-    pensadas para usuarios NO expertos en n8n.
+    Genera instrucciones técnicas mejoradas para cada nodo del workflow.
+    Las notas son compactas, claras, completas y pensadas para usuarios no expertos.
     """
-    logger.info("Iniciando Agente Redactor Técnico (V4.1 - Notas orientadas a acción)...")
-
+    logger.info("Iniciando Agente Redactor Técnico (Manual de Vuelo Mejorado V2)...")
     if not nodes_to_document:
         logger.warning("Lista de nodos para documentar está vacía.")
         return []
 
-    # Pequeño resumen del flujo (contexto extra para la IA)
+    # Resumen del plan para dar contexto al modelo
     workflow_summary = [
         f"- Paso {i+1}: {node.get('name')} ({node.get('type')})"
         for i, node in enumerate(nodes_to_document)
@@ -453,101 +452,78 @@ def agent_technical_writer(nodes_to_document, user_request, model):
     for node in nodes_to_document:
         node_type = node.get("type", "")
         node_name = node.get("name", "NodoDesconocido")
-        purpose = node.get("purpose", "")
         parameters = node.get("parameters", {})
 
-        # Serializamos parámetros para mostrarlos a la IA
-        serialized_params = json.dumps(parameters, indent=2, ensure_ascii=False)
+        # --- Si es Trigger, nota más simple ---
+        if "webhook" in node_type.lower():
+            node['instructions'] = (
+                f"**NODO:** {node_name}\n\n"
+                "**Propósito:** Recibir datos desde fuera del flujo.\n\n"
+                "**Qué hace este nodo:**\n"
+                "• Espera los datos que envían tus sistemas.\n"
+                "• Activa automáticamente el flujo cuando llega información.\n\n"
+                "**Qué configuró automáticamente la IA:**\n"
+                "• Método POST\n"
+                "• Respuesta inmediata (onReceived)\n"
+                "• Sin autenticación\n\n"
+                "**Qué debes completar tú:**\n"
+                "• Nada. El webhook ya está listo.\n\n"
+                "**Dónde encontrar la URL:**\n"
+                "• Activa el flujo y copia la URL que aparece debajo del nodo. "
+                "Esa es la dirección a la que enviarás los datos.\n\n"
+                "**Consejo:** Envía un lead de prueba usando Postman o un formulario."
+            )
+            continue
+
+        # --- Prompt mejorado para el resto de nodos ---
+        prompt = (
+            f"Eres un asistente experto en n8n que escribe notas claras, prácticas y "
+            f"MUY fáciles de entender para usuarios sin conocimientos técnicos.\n\n"
+            f"Genera una nota para el nodo '{node_name}' ({node_type}).\n\n"
+
+            f"--- CONTEXTO DEL FLUJO ---\n"
+            f"{workflow_plan_str}\n\n"
+
+            f"--- CONFIGURACIÓN ACTUAL DEL NODO (PARSEADA POR IA) ---\n"
+            f"{json.dumps(parameters, indent=2)}\n\n"
+
+            f"--- INSTRUCCIONES ---\n"
+            f"Escribe una nota usando EXACTAMENTE esta estructura:\n\n"
+
+            f"**NODO:** {node_name}\n"
+            f"**Propósito:** [1 frase clara]\n"
+            f"**Qué hace este nodo:** [Máx 3 viñetas]\n"
+            f"**Qué configuró automáticamente la IA:** [Qué rellenó IA]\n"
+            f"**Qué debes completar tú:**\n"
+            f"- Detecta automáticamente cualquier valor tipo 'YOUR_..._HERE'\n"
+            f"- Si hay credenciales necesarias, indícalas\n"
+            f"- Si la hoja necesita columnas específicas, menciónalas\n"
+            f"**Dónde encontrar estos datos:**\n"
+            f"- Explica claramente cómo obtener el ID del documento\n"
+            f"- Explica cómo añadir credenciales en n8n\n"
+            f"**Consejo práctico:** [1 tip corto]\n\n"
+
+            f"IMPORTANTE:\n"
+            f"- Usa un lenguaje extremadamente claro.\n"
+            f"- No repitas texto innecesariamente.\n"
+            f"- No superes 12–15 líneas.\n"
+            f"- No inventes parámetros que no existen.\n"
+            f"- Si no hay nada pendiente, escribe 'Ninguno'.\n"
+        )
 
         try:
             if not isinstance(model, genai.GenerativeModel):
                 raise TypeError("Modelo IA no válido")
-
-            prompt = f"""
-Eres un asistente técnico especializado en n8n y tu misión es explicar este nodo
-a una persona que NO sabe de automatización.
-
-Debes generar una nota CLARA, CORTA y ACCIONABLE.
-
-NO uses lenguaje técnico innecesario.
-NO uses párrafos largos.
-NO cortes la información a la mitad.
-
------------------------
-DATOS DEL NODO
------------------------
-Nombre del nodo: {node_name}
-Tipo de nodo: {node_type}
-Propósito previsto (si existe): {purpose or "No especificado"}
-
-Petición original del usuario:
-"{user_request}"
-
-Resumen del flujo (para contexto):
-{workflow_plan_str}
-
-Parámetros configurados automáticamente por la IA (Config IA):
-{serialized_params}
-
------------------------
-REGLAS IMPORTANTES
------------------------
-1. Explica en frases simples qué hace ESTE nodo dentro del flujo.
-2. Indica exactamente qué configuró la IA (2 a 4 puntos máximo).
-3. Indica QUÉ DEBE COMPLETAR el usuario:
-   - Si hay valores tipo "YOUR_..._HERE" o parecidos, menciónalos explícitamente.
-   - Si el nodo necesita credenciales, dilo claramente.
-   - Si hace falta crear columnas, listas, hojas, etc., dilo claramente.
-4. Incluye SIEMPRE una sección "Dónde encontrar estos datos" con instrucciones prácticas:
-   - Para Google Sheets: explica que el ID está en la URL entre /d/ y /edit.
-   - Para webhooks: explica que la URL se copia desde el nodo Webhook.
-   - Para credenciales: explica que se añaden desde el propio nodo en n8n.
-5. No escribas más de 12 líneas en total.
-6. El texto debe estar COMPLETO (no lo cortes).
-
------------------------
-FORMATO EXACTO (NO LO CAMBIES)
------------------------
-
-**NODO:** {node_name}
-
-**Propósito:** [1 frase muy clara sobre qué aporta este nodo en este flujo]
-
-**Qué hace este nodo:**
-• [1–3 puntos explicando en lenguaje simple qué hace con los datos]
-
-**Qué configuró automáticamente la IA:**
-• [2–4 puntos sobre lo que ya está listo (operación, campos, expresiones, etc.)]
-
-**Qué debes completar tú:**
-• [Lista de campos o ajustes que el usuario tiene que rellenar]
-• Si no falta nada: escribe “Nada, ya está completo.”
-
-**Dónde encontrar estos datos:**
-• [Explica dónde conseguir IDs, credenciales, nombres de hojas, etc., con ejemplos claros]
-• Por ejemplo para Google Sheets:
-  “El ID de la hoja está en la URL entre /d/ y /edit. Ejemplo:
-   https://docs.google.com/.../d/1ABCXYZ123/edit → ID = 1ABCXYZ123”
-
-**Consejo práctico:**
-• [Un único consejo corto para evitar errores o probar el nodo]
-
------------------------
-RECUERDA:
-- Texto breve, completo y fácil de seguir.
-- El usuario NO sabe de n8n, así que habla como si se lo explicaras a alguien sin experiencia técnica.
-"""
-
             response = model.generate_content(prompt)
-            node["instructions"] = (response.text or "").strip()
-            logger.info(f"Nota generada para '{node_name}'")
+            node['instructions'] = response.text.strip()
 
         except Exception as e:
             logger.warning(f"Error generando nota para '{node_name}': {e}")
-            node["instructions"] = (
-                f"Propósito: {purpose or 'Revisa qué hace este nodo en el flujo.'}\n"
-                "Tareas pendientes: Revisa la configuración manualmente y completa los campos obligatorios.\n"
-                f"Error del generador de notas: {str(e)}"
+            node['instructions'] = (
+                f"**NODO:** {node_name}\n"
+                "**Propósito:** Documentación automática del nodo.\n"
+                "**Tareas pendientes:** Revisa la configuración manualmente.\n"
+                f"**Error:** {str(e)}"
             )
 
     return nodes_to_document
@@ -651,10 +627,9 @@ def final_assembler(nodes_with_params, connections, user_request):
         raw_instructions = (node.get("instructions") or "").strip()
 
         # Para que la nota no sea un testamento, recortamos un poco (subimos a 900 chars)
-        if raw_instructions and len(raw_instructions) > 900:
-            instructions_preview = raw_instructions[:900] + "…"
-        else:
-            instructions_preview = raw_instructions or "Revisa este nodo si quieres ajustar la configuración."
+        # SIN límite de caracteres
+        instructions_preview = raw_instructions or "Revisa este nodo si quieres ajustar la configuración."
+
 
         # Contenido final de la sticky note
         content = (
