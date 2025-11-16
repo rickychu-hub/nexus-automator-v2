@@ -178,9 +178,20 @@ def handle_user_input(user_input):
         st.session_state.conversation_state = "interviewing"
         st.rerun()
 
+# --- CABECERA PRINCIPAL (HEADER DE LA APP) ---
+st.markdown("## 🤖 Nexus Automator")
+st.markdown(
+    "Tu Co-Piloto de automatización con **IA + n8n**. <br>"
+    "Describe un proceso y generaremos un workflow completo, listo para importar en n8n.",
+    unsafe_allow_html=True
+)
+st.markdown("---")
 
 # --- LÓGICA DE RENDERIZADO PRINCIPAL ---
+
+# Contenedor para la UI principal (chat y prompt)
 main_ui = st.empty()
+
 
 with main_ui.container():
     # Mostrar historial
