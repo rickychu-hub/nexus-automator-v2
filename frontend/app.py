@@ -4,8 +4,43 @@ import requests
 import json
 import os
 import logging
-from streamlit_lottie import st_lottie
 import time
+import re
+import unicodedata
+
+# --- FUNCIÓN PARA GENERAR NOMBRE CORTO ---
+def generar_nombre_corto(briefing_text: str) -> str:
+    """
+    Genera un nombre corto, limpio y profesional para el workflow
+    usando la lógica central del briefing del Agente Entrevistador.
+    """
+    if not briefing_text:
+        return "workflow"
+
+    # 1. pasar a minúsculas
+    text = briefing_text.lower()
+
+    # 2. quitar tildes
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
+
+    # 3. palabras clave a detectar
+    keywords = ["pedidos", "pedido", "leads", "lead", "contactos", "contacto", 
+                "facturas", "factura", "cliente", "clientes",
+                "webhook", "slack", "google", "sheet", "pais", "international"]
+
+    found = [kw for kw in keywords if kw in text]
+
+    if not found:
+        return "workflow"
+
+    # 4. dejamos máximo 3 palabras
+    name = "_".join(found[:3])
+
+    # 5. limpiamos sobrantes
+    name = re.sub(r'[^a-z0-9_]+', '', name)
+
+    return name or "workflow"
+
 
 # --- CONFIGURACIÓN BÁSICA ---
 st.set_page_config(page_title="Nexus Automator 🤖", page_icon="🤖", layout="wide")
@@ -35,53 +70,40 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- FUNCIÓN PARA CARGAR LOTTIE (V4.1 LOCAL) ---
-@st.cache_data
-def load_lottie_local(filepath: str):
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error cargando Lottie local {filepath}: {e}")
-        return None
-
-LOTTIE_FILEPATH = "animacion.json"
-lottie_animation = load_lottie_local(LOTTIE_FILEPATH)
-
-# --- TÍTULO ---
-st.markdown("<h1 style='text-align:center; color:#00aaff;'>🤖 Nexus Automator</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; color:#cccccc;'>Tu Co-Piloto de Automatización con IA y n8n</p>", unsafe_allow_html=True)
-
-# --- ESTADOS DE SESIÓN (Corregidos V4.5) ---
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Hola 👋 ¿Qué proceso te gustaría automatizar hoy?"}]
-if "conversation_state" not in st.session_state:
-    st.session_state.conversation_state = "waiting_for_prompt"
-if "interview_history" not in st.session_state:
-    st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
-if "stored_answers" not in st.session_state:
-    st.session_state.stored_answers = {}
-if "final_briefing" not in st.session_state:
-    st.session_state.final_briefing = ""
-
-# --- FUNCIÓN PARA MOSTRAR MENSAJES ---
+## --- FUNCIÓN PARA MOSTRAR MENSAJES ---
 def display_message(message):
     with st.chat_message(message["role"]):
+        # Mostrar contenido normal o JSON
         try:
             parsed = json.loads(message["content"])
             st.json(parsed)
         except:
             st.markdown(message["content"])
+
+        # Si hay workflow generado, activar descarga
         if message.get("workflow_json"):
-            unique_key = f"download_btn_{hash(message['content'])}"
+
+            # ID único seguro para el archivo y botón
+            unique_id = str(time.time_ns())[-6:]
+
+            # Nombre corto basado en el briefing
+            brief = message.get("briefing", "")
+            short_name = generar_nombre_corto(brief)
+
+            # Nombre final del archivo
+            file_name = f"{short_name}_{unique_id}.json"
+
+            # Botón de descarga
             st.download_button(
-                key=unique_key,
-                label="📥 Descargar Workflow.json",
+                key=f"download_{unique_id}",
+                label="📥 Descargar Workflow",
                 data=json.dumps(message["workflow_json"], indent=2),
-                file_name="workflow.json",
+                file_name=file_name,
                 mime="application/json",
                 use_container_width=True
             )
+
+
 
 # --- GESTIÓN DE ENTRADA (ARREGLO V2.6) ---
 def handle_user_input(user_input):
