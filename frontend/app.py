@@ -1,4 +1,4 @@
-# app.py (VERSIÓN V4.6 - UI Superpuesta y Arreglada)
+# app.py (VERSIÓN V4.8 - UI + Descarga inteligente + Fix session_state)
 import streamlit as st
 import requests
 import json
@@ -24,9 +24,11 @@ def generar_nombre_corto(briefing_text: str) -> str:
     text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
 
     # 3. palabras clave a detectar
-    keywords = ["pedidos", "pedido", "leads", "lead", "contactos", "contacto", 
-                "facturas", "factura", "cliente", "clientes",
-                "webhook", "slack", "google", "sheet", "pais", "international"]
+    keywords = [
+        "pedidos", "pedido", "leads", "lead", "contactos", "contacto",
+        "facturas", "factura", "cliente", "clientes",
+        "webhook", "slack", "google", "sheet", "pais", "international"
+    ]
 
     found = [kw for kw in keywords if kw in text]
 
@@ -45,13 +47,34 @@ def generar_nombre_corto(briefing_text: str) -> str:
 # --- CONFIGURACIÓN BÁSICA ---
 st.set_page_config(page_title="Nexus Automator 🤖", page_icon="🤖", layout="wide")
 
-# URLs (corregidas)
+# URLs
 INTERVIEW_URL = os.getenv("INTERVIEW_URL", "http://localhost:8000/interview/")
 GENERATION_URL = os.getenv("GENERATION_URL", "http://localhost:8000/create-workflow-streaming/")
 
 logger = logging.getLogger(__name__)
 
-# --- ESTILO VISUAL (CON ARREGLO V4.6) ---
+# --- INICIALIZAR SESSION_STATE ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "conversation_state" not in st.session_state:
+    st.session_state.conversation_state = "waiting_for_prompt"
+
+if "interview_history" not in st.session_state:
+    st.session_state.interview_history = {
+        "original_prompt": "",
+        "questions": [],
+        "answers": []
+    }
+
+if "stored_answers" not in st.session_state:
+    st.session_state.stored_answers = {}
+
+if "final_briefing" not in st.session_state:
+    st.session_state.final_briefing = ""
+
+
+# --- ESTILO VISUAL ---
 st.markdown("""
     <style>
     .stApp {
@@ -59,30 +82,66 @@ st.markdown("""
         color: #e4e6eb !important;
     }
     .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    div[data-testid="stChatMessage-assistant"] { background: rgba(255, 255, 255, 0.04); border-radius: 10px; padding: 12px; margin-bottom: 0.6rem; border-left: 4px solid #00aaff; }
-    div[data-testid="stChatMessage-user"] { background: rgba(0, 136, 255, 0.18); border-radius: 10px; padding: 12px; margin-bottom: 0.6rem; border-right: 4px solid #00aaff; }
-    div.stMarkdown p, .stMarkdown li, .stTextInput label { color: #f0f2f5 !important; font-size: 16px; }
-    button { background-color: #0077ff !important; color: white !important; border: none; border-radius: 8px; font-weight: 600; transition: 0.3s ease; }
-    button:hover { background-color: #0099ff !important; box-shadow: 0 0 10px rgba(0,153,255,0.5); }
-    input { background-color: #14191e !important; color: #e4e6eb !important; border: 1px solid #00aaff !important; border-radius: 6px !important; }
-    .resumen-box { background: rgba(0, 170, 255, 0.08); border-left: 3px solid #00aaff; padding: 12px 18px; border-radius: 8px; margin-bottom: 1rem; color: #cce6ff; }
-
+    div[data-testid="stChatMessage-assistant"] {
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 0.6rem;
+        border-left: 4px solid #00aaff;
+    }
+    div[data-testid="stChatMessage-user"] {
+        background: rgba(0, 136, 255, 0.18);
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 0.6rem;
+        border-right: 4px solid #00aaff;
+    }
+    div.stMarkdown p, .stMarkdown li, .stTextInput label {
+        color: #f0f2f5 !important;
+        font-size: 16px;
+    }
+    button {
+        background-color: #0077ff !important;
+        color: white !important;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: 0.3s ease;
+    }
+    button:hover {
+        background-color: #0099ff !important;
+        box-shadow: 0 0 10px rgba(0,153,255,0.5);
+    }
+    input {
+        background-color: #14191e !important;
+        color: #e4e6eb !important;
+        border: 1px solid #00aaff !important;
+        border-radius: 6px !important;
+    }
+    .resumen-box {
+        background: rgba(0, 170, 255, 0.08);
+        border-left: 3px solid #00aaff;
+        padding: 12px 18px;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        color: #cce6ff;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-## --- FUNCIÓN PARA MOSTRAR MENSAJES ---
+
+# --- FUNCIÓN PARA MOSTRAR MENSAJES ---
 def display_message(message):
     with st.chat_message(message["role"]):
         # Mostrar contenido normal o JSON
         try:
             parsed = json.loads(message["content"])
             st.json(parsed)
-        except:
+        except Exception:
             st.markdown(message["content"])
 
         # Si hay workflow generado, activar descarga
         if message.get("workflow_json"):
-
             # ID único seguro para el archivo y botón
             unique_id = str(time.time_ns())[-6:]
 
@@ -104,8 +163,7 @@ def display_message(message):
             )
 
 
-
-# --- GESTIÓN DE ENTRADA (ARREGLO V2.6) ---
+# --- GESTIÓN DE ENTRADA ---
 def handle_user_input(user_input):
     if isinstance(user_input, dict):
         answers_text = "\n".join(f"• {v}" for v in user_input.values())
@@ -122,22 +180,20 @@ def handle_user_input(user_input):
 
 
 # --- LÓGICA DE RENDERIZADO PRINCIPAL ---
-
-# Contenedor para la UI principal (chat y prompt)
 main_ui = st.empty()
 
 with main_ui.container():
-    # --- MOSTRAR HISTORIAL ---
+    # Mostrar historial
     for msg in st.session_state.messages:
         display_message(msg)
 
-    # --- PROMPT INICIAL ---
+    # Prompt inicial
     if st.session_state.conversation_state == "waiting_for_prompt":
         st.info("💡 Describe un proceso (ej: *Cuando se acepte un presupuesto en Zoho, crear factura en Holded y notificar en Trello*).")
         if prompt := st.chat_input("¿Qué automatizamos hoy?"):
             handle_user_input(prompt)
 
-    # --- FORMULARIO DE PREGUNTAS (ARREGLO V2.5) ---
+    # Formulario de preguntas
     if st.session_state.conversation_state == "waiting_for_answers":
         if st.session_state.interview_history["questions"]:
             with st.chat_message("assistant"):
@@ -154,7 +210,10 @@ with main_ui.container():
                 for i, q in enumerate(st.session_state.interview_history["questions"]):
                     key = f"q_{i}"
                     prev_value = st.session_state.stored_answers.get(key, "")
-                    answers[key] = st.text_input(f"💬 {q}", key=key, value=prev_value, placeholder="Escribe tu respuesta aquí...")
+                    answers[key] = st.text_input(
+                        f"💬 {q}", key=key, value=prev_value,
+                        placeholder="Escribe tu respuesta aquí..."
+                    )
 
                 if st.form_submit_button("Enviar respuestas"):
                     for key, value in answers.items():
@@ -168,7 +227,7 @@ with main_ui.container():
             st.session_state.conversation_state = "interviewing"
             st.rerun()
 
-# --- LÓGICA DE ESTADOS (ENTREVISTA) ---
+
 # --- LÓGICA DE ESTADOS (ENTREVISTA) ---
 if st.session_state.conversation_state == "interviewing":
     with st.spinner("🧠 El Co-Piloto está pensando..."):
@@ -178,21 +237,14 @@ if st.session_state.conversation_state == "interviewing":
             data = response.json()
 
             if data.get("status") == "clarified":
-                
-                # --- ¡INICIO DEL ARREGLO! (Manejo de Briefing Objeto/String) ---
                 briefing_data = data.get("briefing")
 
                 if isinstance(briefing_data, dict):
-                    # Si la IA devuelve un JSON (como en tu log), lo convertimos a un string
                     st.session_state.final_briefing = json.dumps(briefing_data, indent=2, ensure_ascii=False)
                 elif isinstance(briefing_data, str):
-                    # Si la IA devuelve un string (como debería), lo usamos
                     st.session_state.final_briefing = briefing_data
                 else:
-                    # Fallback por si es None o algo raro
                     st.session_state.final_briefing = str(briefing_data or "Briefing no disponible.")
-                
-                # --- ¡FIN DEL ARREGLO! ---
 
                 st.session_state.conversation_state = "generating"
                 st.rerun()
@@ -207,24 +259,17 @@ if st.session_state.conversation_state == "interviewing":
             st.session_state.conversation_state = "waiting_for_prompt"
 
 
-# --- GENERACIÓN DEL WORKFLOW (¡ARREGLO V4.6!) ---
-# --- GENERACIÓN DEL WORKFLOW FINAL (V4.8 - ARREGLO DE 3 BUGS) ---
+# --- GENERACIÓN DEL WORKFLOW FINAL ---
 if st.session_state.conversation_state == "generating":
 
-    # Ocultamos el chat y el prompt de entrada
-    main_ui.empty() 
+    main_ui.empty()
 
-    # --- Generación del Workflow ---
-
-    # 1. Mostramos el Resumen
     st.markdown("### 🚀 Generando tu Automatización")
     st.markdown(st.session_state.final_briefing)
     st.markdown("---")
 
-    # Banderas para controlar el reinicio
     generation_complete = False
 
-    # El Log de Estado en Vivo
     with st.status("⚙️ El Co-Piloto está trabajando...", expanded=True) as status_ui:
 
         final_json_str = None
@@ -233,32 +278,29 @@ if st.session_state.conversation_state == "generating":
         decoded_line = ""
 
         try:
-            # Conectamos al Stream
             response = requests.post(
-                GENERATION_URL, 
+                GENERATION_URL,
                 json={"user_prompt": st.session_state.final_briefing},
                 timeout=600,
                 stream=True
             )
             response.raise_for_status()
 
-            # Leemos el Log en Vivo
             for line in response.iter_lines():
                 if line:
-                    decoded_line = line.decode('utf-8')
+                    decoded_line = line.decode("utf-8")
 
-                    if decoded_line.startswith('{') and decoded_line.endswith('}'):
+                    if decoded_line.startswith("{") and decoded_line.endswith("}"):
                         final_json_str = decoded_line
                     elif "ERROR:" in decoded_line:
                         logger.error(f"Error de pipeline V4.9: {decoded_line}")
                         status_ui.update(label=f"❌ Error: {decoded_line}", state="error")
                         time.sleep(5)
                         generation_complete = True
-                        break 
+                        break
                     else:
                         status_ui.write(decoded_line)
 
-            # --- Procesamiento Post-Stream ---
             if final_json_str:
                 api_response = json.loads(final_json_str)
                 workflow_json_obj = api_response.get("workflow_json")
@@ -269,11 +311,12 @@ if st.session_state.conversation_state == "generating":
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": f"✅ ¡Workflow generado con éxito!\n\n> {summary_str}",
-                    "workflow_json": workflow_json_obj
+                    "workflow_json": workflow_json_obj,
+                    "briefing": st.session_state.final_briefing
                 })
                 generation_complete = True
             else:
-                if "ERROR:" not in decoded_line: 
+                if "ERROR:" not in decoded_line:
                     st.error("❌ Error: El Co-Piloto no devolvió un workflow válido.")
                     status_ui.update(label="❌ Error: No se recibió respuesta final.", state="error")
                     generation_complete = True
@@ -283,14 +326,10 @@ if st.session_state.conversation_state == "generating":
             status_ui.update(label=f"❌ Error de conexión: {e}", state="error")
             generation_complete = True
 
-    # --- Reinicio después de completar la generación ---
-    # El 'rerun' ahora está AFUERA de las columnas,
-    # y solo se ejecuta cuando el stream ha terminado.
     if generation_complete:
-        # --- Resetear el estado ---
         st.session_state.conversation_state = "waiting_for_prompt"
         st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
         st.session_state.stored_answers = {}
         st.session_state.final_briefing = ""
-        time.sleep(1) 
+        time.sleep(1)
         st.rerun()
