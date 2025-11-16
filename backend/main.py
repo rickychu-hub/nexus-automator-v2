@@ -434,16 +434,16 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
     """
-    Genera instrucciones técnicas y notas claras para usuarios no técnicos,
-    explicando propósito, configuración realizada y datos que deben completarse.
+    Genera instrucciones técnicas y notas claras para cada nodo del workflow,
+    pensadas para usuarios NO expertos en n8n.
     """
-    logger.info("Iniciando Agente Redactor Técnico (Manual de Vuelo)...")
+    logger.info("Iniciando Agente Redactor Técnico (V4.1 - Notas orientadas a acción)...")
 
     if not nodes_to_document:
         logger.warning("Lista de nodos para documentar está vacía.")
         return []
 
-    # Resumen del workflow
+    # Pequeño resumen del flujo (contexto extra para la IA)
     workflow_summary = [
         f"- Paso {i+1}: {node.get('name')} ({node.get('type')})"
         for i, node in enumerate(nodes_to_document)
@@ -451,90 +451,103 @@ def agent_technical_writer(nodes_to_document, user_request, model):
     workflow_plan_str = "\n".join(workflow_summary)
 
     for node in nodes_to_document:
+        node_type = node.get("type", "")
+        node_name = node.get("name", "NodoDesconocido")
+        purpose = node.get("purpose", "")
+        parameters = node.get("parameters", {})
 
-        node_type = node.get('type', '')
-        node_name = node.get('name', 'NodoDesconocido')
-        purpose = node.get('purpose', '')  # ← IMPORTANTE: USA EL PURPOSE REAL
-        parameters = node.get('parameters', {})
-
-        # Si no hay propósito, coloca uno por defecto
-        if not purpose:
-            purpose = "Nodo sin propósito definido por la IA. Revisa su función en el flujo."
-
-        # Detectar campos que requieren configuración manual
-        missing_fields = []
-        serialized_params = json.dumps(parameters, indent=2)
-
-        for key in ["YOUR_", "your_", "REPLACE", "FALTANTE", "ID_HERE"]:
-            if key in serialized_params:
-                missing_fields.append(key)
-
-        # Construimos el PROMPT MEJORADO
-        prompt = f"""
-Eres un redactor técnico experto en automatización con n8n, pero debes escribir 
-para personas SIN conocimientos técnicos.
-
-Genera una nota muy breve, muy clara y muy práctica para el nodo '{node_name}' ({node_type}).
-
-=== CONTEXTO ===
-- Petición original: {user_request}
-- Paso dentro del workflow:
-{workflow_plan_str}
-
-=== PROPÓSITO REAL DEL NODO ===
-{purpose}
-
-=== PARÁMETROS CONFIGURADOS POR IA ===
-{serialized_params}
-
-=== INSTRUCCIONES QUE DEBES GENERAR ===
-
-Formato obligatorio (texto plano, NO markdown):
-
-Propósito:
-• Explica en 1 frase qué hace este nodo en este flujo.
-
-Qué hace:
-• Explica cómo usa los datos.
-• Usa lenguaje no técnico.
-
-Qué configuró automáticamente la IA:
-• Indica SOLO lo importante (expresiones, ramas, operación, etc.)
-
-Qué debes completar tú:
-• Si hay valores tipo 'YOUR_..._HERE', indícalos uno por uno.
-• Explica exactamente dónde conseguir cada dato.
-	EJEMPLOS:
-	- Google Sheets → el ID está en la URL entre /d/ y /edit
-	- Slack Webhook → crear uno en Ajustes > Apps > Incoming Webhooks
-	- Trello → el ID de la lista está en la URL al abrirla
-	- Webhook URL → copiar del nodo Webhook en n8n
-	- Airtable → el ID de la base está en la URL
-
-Consejo:
-• Un tip corto para validar que funciona.
-
-IMPORTANTE:
-- Respuestas muy cortas.
-- Nada de tecnicismos.
-- No repitas el propósito.
-"""
+        # Serializamos parámetros para mostrarlos a la IA
+        serialized_params = json.dumps(parameters, indent=2, ensure_ascii=False)
 
         try:
             if not isinstance(model, genai.GenerativeModel):
                 raise TypeError("Modelo IA no válido")
 
-            response = model.generate_content(prompt)
-            node['instructions'] = response.text.strip()
+            prompt = f"""
+Eres un asistente técnico especializado en n8n y tu misión es explicar este nodo
+a una persona que NO sabe de automatización.
 
+Debes generar una nota CLARA, CORTA y ACCIONABLE.
+
+NO uses lenguaje técnico innecesario.
+NO uses párrafos largos.
+NO cortes la información a la mitad.
+
+-----------------------
+DATOS DEL NODO
+-----------------------
+Nombre del nodo: {node_name}
+Tipo de nodo: {node_type}
+Propósito previsto (si existe): {purpose or "No especificado"}
+
+Petición original del usuario:
+"{user_request}"
+
+Resumen del flujo (para contexto):
+{workflow_plan_str}
+
+Parámetros configurados automáticamente por la IA (Config IA):
+{serialized_params}
+
+-----------------------
+REGLAS IMPORTANTES
+-----------------------
+1. Explica en frases simples qué hace ESTE nodo dentro del flujo.
+2. Indica exactamente qué configuró la IA (2 a 4 puntos máximo).
+3. Indica QUÉ DEBE COMPLETAR el usuario:
+   - Si hay valores tipo "YOUR_..._HERE" o parecidos, menciónalos explícitamente.
+   - Si el nodo necesita credenciales, dilo claramente.
+   - Si hace falta crear columnas, listas, hojas, etc., dilo claramente.
+4. Incluye SIEMPRE una sección "Dónde encontrar estos datos" con instrucciones prácticas:
+   - Para Google Sheets: explica que el ID está en la URL entre /d/ y /edit.
+   - Para webhooks: explica que la URL se copia desde el nodo Webhook.
+   - Para credenciales: explica que se añaden desde el propio nodo en n8n.
+5. No escribas más de 12 líneas en total.
+6. El texto debe estar COMPLETO (no lo cortes).
+
+-----------------------
+FORMATO EXACTO (NO LO CAMBIES)
+-----------------------
+
+**NODO:** {node_name}
+
+**Propósito:** [1 frase muy clara sobre qué aporta este nodo en este flujo]
+
+**Qué hace este nodo:**
+• [1–3 puntos explicando en lenguaje simple qué hace con los datos]
+
+**Qué configuró automáticamente la IA:**
+• [2–4 puntos sobre lo que ya está listo (operación, campos, expresiones, etc.)]
+
+**Qué debes completar tú:**
+• [Lista de campos o ajustes que el usuario tiene que rellenar]
+• Si no falta nada: escribe “Nada, ya está completo.”
+
+**Dónde encontrar estos datos:**
+• [Explica dónde conseguir IDs, credenciales, nombres de hojas, etc., con ejemplos claros]
+• Por ejemplo para Google Sheets:
+  “El ID de la hoja está en la URL entre /d/ y /edit. Ejemplo:
+   https://docs.google.com/.../d/1ABCXYZ123/edit → ID = 1ABCXYZ123”
+
+**Consejo práctico:**
+• [Un único consejo corto para evitar errores o probar el nodo]
+
+-----------------------
+RECUERDA:
+- Texto breve, completo y fácil de seguir.
+- El usuario NO sabe de n8n, así que habla como si se lo explicaras a alguien sin experiencia técnica.
+"""
+
+            response = model.generate_content(prompt)
+            node["instructions"] = (response.text or "").strip()
             logger.info(f"Nota generada para '{node_name}'")
 
         except Exception as e:
             logger.warning(f"Error generando nota para '{node_name}': {e}")
-            node['instructions'] = (
-                f"Propósito: {purpose}\n"
-                "Tareas pendientes: Revisa la configuración manualmente.\n"
-                f"Error del generador: {str(e)}"
+            node["instructions"] = (
+                f"Propósito: {purpose or 'Revisa qué hace este nodo en el flujo.'}\n"
+                "Tareas pendientes: Revisa la configuración manualmente y completa los campos obligatorios.\n"
+                f"Error del generador de notas: {str(e)}"
             )
 
     return nodes_to_document
