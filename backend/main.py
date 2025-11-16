@@ -614,116 +614,150 @@ def final_assembler(nodes_with_params, connections, user_request):
         logger.error("final_assembler recibió 'nodes_with_params' inválido.")
         nodes_with_params = []
     if not isinstance(connections, dict):
-         logger.error("final_assembler recibió 'connections' inválido.")
-         connections = {}
-    
+        logger.error("final_assembler recibió 'connections' inválido.")
+        connections = {}
+
     logger.info("Ensamblando workflow final...")
+
+    # --- NOTAS (sticky notes) ---
     new_notes, max_note_height = [], 0
-    current_note_x, NOTE_Y_START, NOTE_X_SPACING, FIXED_NOTE_WIDTH = 250, 20, 20, 300
+    current_note_x = 250
+    NOTE_Y_START = 20
+    NOTE_X_SPACING = 20
+    FIXED_NOTE_WIDTH = 300
     COLOR_PALETTE = ["#A5D6A7", "#FFCC80", "#90CAF9", "#B39DDB", "#F48FB1", "#80CBC4"]
-    
+
+    # ⚠️ ANTES: casi todo este bloque estaba FUERA del for → solo 1 nota
     for i, node in enumerate(nodes_with_params):
-        node_id = node.get('id', f'temp_{i}')
+        node_id = node.get("id", f"temp_{i}")
 
-    # 🔹 Propósito definido por el Arquitecto
-        node_purpose = node.get('purpose', 'Sin propósito definido.')
+        # Propósito definido por el Arquitecto
+        node_purpose = node.get("purpose", "Sin propósito definido.")
 
-    # 🔹 Instrucciones generadas por el agente redactor (si existen)
-        raw_instructions = node.get('instructions', '').strip()
+        # Instrucciones generadas por el agente redactor (si existen)
+        raw_instructions = (node.get("instructions") or "").strip()
 
-    # Para que la nota no sea un testamento, recortamos un poco
-    if raw_instructions and len(raw_instructions) > 600:
-        instructions_preview = raw_instructions[:600] + "…"
-    else:
-        instructions_preview = raw_instructions or "Revisa este nodo si quieres ajustar la configuración."
+        # Para que la nota no sea un testamento, recortamos un poco (subimos a 900 chars)
+        if raw_instructions and len(raw_instructions) > 900:
+            instructions_preview = raw_instructions[:900] + "…"
+        else:
+            instructions_preview = raw_instructions or "Revisa este nodo si quieres ajustar la configuración."
 
-    # 🔹 Contenido final de la sticky note
-    content = (
-        f"**NODO:** {node.get('name')}\n\n"
-        f"**Propósito:** {node_purpose}\n\n"
-        f"**Cómo está configurado / qué debes revisar:**\n"
-        f"{instructions_preview}"
-    )
+        # Contenido final de la sticky note
+        content = (
+            f"**NODO:** {node.get('name')}\n\n"
+            f"**Propósito:** {node_purpose}\n\n"
+            f"**Cómo está configurado / qué debes revisar:**\n"
+            f"{instructions_preview}"
+        )
 
-    dynamic_height = min(400, len(content.split('\n')) * 18 + 50)
-    max_note_height = max(max_note_height, dynamic_height)
-    new_note = {
-        "id": f"note_for_{node_id}",
-        "type": "n8n-nodes-base.stickyNote",
-        "typeVersion": 1,
-        "name": f"Info {node.get('name')}",
-        "parameters": {
-            "content": content,
-            "color": COLOR_PALETTE[i % len(COLOR_PALETTE)],
-            "width": FIXED_NOTE_WIDTH,
-            "height": dynamic_height
-        },
-        "position": [current_note_x, NOTE_Y_START]
-    }
-    new_notes.append(new_note)
-    current_note_x += FIXED_NOTE_WIDTH + NOTE_X_SPACING
+        dynamic_height = min(400, len(content.split("\n")) * 18 + 50)
+        max_note_height = max(max_note_height, dynamic_height)
 
-        
-        # (El resto de la lógica de las notas sigue igual)
-    dynamic_height = min(400, len(content.split('\n')) * 18 + 50)
-    max_note_height = max(max_note_height, dynamic_height)
-    new_note = {"id": f"note_for_{node_id}", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "name": f"Info {node.get('name')}", "parameters": {"content": content, "color": COLOR_PALETTE[i % len(COLOR_PALETTE)], "width": FIXED_NOTE_WIDTH, "height": dynamic_height}, "position": [current_note_x, NOTE_Y_START]}
-    new_notes.append(new_note)
-    current_note_x += FIXED_NOTE_WIDTH + NOTE_X_SPACING
-        
+        new_note = {
+            "id": f"note_for_{node_id}",
+            "type": "n8n-nodes-base.stickyNote",
+            "typeVersion": 1,
+            "name": f"Info {node.get('name')}",
+            "parameters": {
+                "content": content,
+                "color": COLOR_PALETTE[i % len(COLOR_PALETTE)],
+                "width": FIXED_NOTE_WIDTH,
+                "height": dynamic_height,
+            },
+            "position": [current_note_x, NOTE_Y_START],
+        }
+
+        new_notes.append(new_note)
+        current_note_x += FIXED_NOTE_WIDTH + NOTE_X_SPACING
+
+    # --- POSICIONAMIENTO DE NODOS ---
     node_positions = {}
-    X_START, Y_START_NODES, X_SPACING, Y_SPACING = 250, NOTE_Y_START + max_note_height + 100, 350, 150
-    all_node_names_in_plan = {n['name'] for n in nodes_with_params}
+    X_START = 250
+    Y_START_NODES = NOTE_Y_START + max_note_height + 100
+    X_SPACING = 350
+    Y_SPACING = 150
+
+    all_node_names_in_plan = {n["name"] for n in nodes_with_params}
     nodes_with_inputs = set()
-    
+
     for _source_node, conn_data in connections.items():
-         if isinstance(conn_data, dict) and "main" in conn_data:
-               for branch in conn_data["main"]:
-                    if isinstance(branch, list):
-                       for target in branch:
-                            if isinstance(target, dict) and "node" in target:
-                                nodes_with_inputs.add(target["node"])
-                                
+        if isinstance(conn_data, dict) and "main" in conn_data:
+            for branch in conn_data["main"]:
+                if isinstance(branch, list):
+                    for target in branch:
+                        if isinstance(target, dict) and "node" in target:
+                            nodes_with_inputs.add(target["node"])
+
     start_nodes = [name for name in all_node_names_in_plan if name not in nodes_with_inputs]
     processed_positions = set()
     current_y_offsets = {}
-    
+
     def position_nodes_recursive(node_name, x, y_level):
-        if node_name in processed_positions: return
+        if node_name in processed_positions:
+            return
         y = Y_START_NODES + y_level * Y_SPACING + current_y_offsets.get(y_level, 0)
         node_positions[node_name] = [x, y]
         processed_positions.add(node_name)
         current_y_offsets[y_level] = current_y_offsets.get(y_level, 0) + Y_SPACING / 2
-        
+
         if node_name in connections:
-             all_branches = connections[node_name].get("main", [])
-             if len(all_branches) > 0 and isinstance(all_branches[0], list) and all_branches[0]:
-                  next_node_name = all_branches[0][0].get('node')
-                  if next_node_name: position_nodes_recursive(next_node_name, x + X_SPACING, y_level)
-             if len(all_branches) > 1 and isinstance(all_branches[1], list) and all_branches[1]:
-                  next_node_name = all_branches[1][0].get('node')
-                  if next_node_name: position_nodes_recursive(next_node_name, x + X_SPACING, y_level + 1)
-                  
-    if start_nodes: position_nodes_recursive(start_nodes[0], X_START, 0)
-    else: logger.warning("Sin nodos iniciales para posicionamiento.")
-    
+            all_branches = connections[node_name].get("main", [])
+            if len(all_branches) > 0 and isinstance(all_branches[0], list) and all_branches[0]:
+                next_node_name = all_branches[0][0].get("node")
+                if next_node_name:
+                    position_nodes_recursive(next_node_name, x + X_SPACING, y_level)
+            if len(all_branches) > 1 and isinstance(all_branches[1], list) and all_branches[1]:
+                next_node_name = all_branches[1][0].get("node")
+                if next_node_name:
+                    position_nodes_recursive(next_node_name, x + X_SPACING, y_level + 1)
+
+    if start_nodes:
+        position_nodes_recursive(start_nodes[0], X_START, 0)
+    else:
+        logger.warning("Sin nodos iniciales para posicionamiento.")
+
     for node in nodes_with_params:
-         if node['name'] in node_positions: node['position'] = node_positions[node['name']]
-         elif 'position' not in node: node['position'] = [X_START - 200, Y_START_NODES]
-         
+        if node["name"] in node_positions:
+            node["position"] = node_positions[node["name"]]
+        elif "position" not in node:
+            node["position"] = [X_START - 200, Y_START_NODES]
+
+    # --- LIMPIEZA FINAL ---
     final_nodes_cleaned = []
-    required_keys = ["parameters", "name", "type", "typeVersion", "position", "id", "credentials","purpose","instructions"]
+    required_keys = [
+        "parameters",
+        "name",
+        "type",
+        "typeVersion",
+        "position",
+        "id",
+        "credentials",
+        "purpose",
+        "instructions",
+    ]
+
     all_nodes_final = nodes_with_params + new_notes
-    
+
     for node in all_nodes_final:
-        node['id'] = str(node.get('id', f"missing_id_{time.time()}"))
+        node["id"] = str(node.get("id", f"missing_id_{time.time()}"))
         clean_node = {key: node[key] for key in required_keys if key in node}
-        if 'parameters' not in clean_node: clean_node['parameters'] = {}
+        if "parameters" not in clean_node:
+            clean_node["parameters"] = {}
         final_nodes_cleaned.append(clean_node)
-        
-    final_workflow = {"name": user_request[:60].replace('\n',' '), "nodes": final_nodes_cleaned, "connections": connections, "active": False, "settings": {}, "staticData": None}
+
+    final_workflow = {
+        "name": user_request[:60].replace("\n", " "),
+        "nodes": final_nodes_cleaned,
+        "connections": connections,
+        "active": False,
+        "settings": {},
+        "staticData": None,
+    }
+
     logger.info("✅ Workflow final ensamblado.")
     return json.dumps(final_workflow, indent=2, ensure_ascii=False)
+
 
 async def stream_generation_pipeline(final_prompt: str):
     logger.info("Iniciando pipeline de generación (V6 - Arquitecto Unificado)...")
