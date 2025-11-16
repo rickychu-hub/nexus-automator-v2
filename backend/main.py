@@ -298,91 +298,107 @@ def agent_investigator_v1_fallback(user_request):
 
 # AGENTE ARQUITECTO
 def agent_architect(investigation_results, user_request, knowledge_base, model):
-    logger.info("Iniciando Agente Arquitecto (V4 - Modo Configurador-Jefe)...")
+    logger.info("Iniciando Agente Arquitecto (V4 - Modo Configurador-Jefe con ramas)...")
     candidate_node_ids = investigation_results.get("candidate_nodes", [])
     case_studies = investigation_results.get("case_studies", [])
     if not candidate_node_ids:
-         logger.warning("Agente Arquitecto: lista vacía de nodos candidatos.")
+        logger.warning("Agente Arquitecto: lista vacía de nodos candidatos.")
 
+    # Preparamos detalles de cada nodo (incluye 'properties')
     candidate_details = []
     for nid in candidate_node_ids:
-         node_info = knowledge_base.get(nid.lower()) 
-         if node_info:
-             candidate_details.append({
-                 "nodeId_EXACTO_A_USAR": nid,
-                 "descripcion": node_info.get('description', 'Sin descripción.'),
-                 "properties": node_info.get('properties', {}) 
-             })
-         else:
-              logger.warning(f"Nodo '{nid}' no encontrado en KB en memoria.")
+        node_info = knowledge_base.get(nid.lower())
+        if node_info:
+            candidate_details.append({
+                "nodeId_EXACTO_A_USAR": nid,
+                "descripcion": node_info.get('description', 'Sin descripción.'),
+                "properties": node_info.get('properties', {})
+            })
+        else:
+            logger.warning(f"Nodo '{nid}' no encontrado en KB en memoria.")
 
+    # --- PROMPT MEJORADO: INCLUYE RAMAS ---
     prompt = (
-        f"Actúas como Arquitecto y Configurador n8n de élite. Tu trabajo es diseñar un plan lógico y configurar los parámetros de cada nodo.\n\n"
-        f"**Petición:** \"{user_request}\"\n"
-        f"**Casos:**\n```json\n{json.dumps(case_studies, indent=2, ensure_ascii=False)}\n```\n"
-        f"**Nodos Disponibles (CON SU ESQUEMA 'properties' REAL):**\n"
-        f"```json\n{json.dumps(candidate_details, indent=2, ensure_ascii=False)}\n```\n"
-        
-        f"--- TAREA: Plan Lógico y Configuración ---\n"
-        f"Diseña el plan de nodos. PARA CADA NODO, debes incluir:\n"
-        f"1. `nodeId`: El ID exacto del nodo.\n"
-        f"2. `purpose`: Una descripción clara de la intención.\n"
-        f"3. `parameters`: Un objeto JSON con la CONFIGURACIÓN PRECISA del nodo.\n\n"
-        
+        f"Actúas como Arquitecto y Configurador n8n de élite. Tu trabajo es diseñar un plan lógico y "
+        f"configurar los parámetros de cada nodo.\n\n"
+        f"**Petición del usuario:**\n\"{user_request}\"\n\n"
+        f"**Casos de referencia (ejemplos de workflows similares):**\n```json\n"
+        f"{json.dumps(case_studies, indent=2, ensure_ascii=False)}\n```\n\n"
+        f"**Nodos disponibles (con su esquema REAL 'properties'):**\n```json\n"
+        f"{json.dumps(candidate_details, indent=2, ensure_ascii=False)}\n```\n\n"
+        f"--- TAREA PRINCIPAL ---\n"
+        f"Diseña el plan de nodos para implementar la petición. PARA CADA NODO debes incluir:\n"
+        f"1. `nodeId`: El ID exacto del nodo (uno de los nodeId_EXACTO_A_USAR).\n"
+        f"2. `purpose`: Una frase clara explicando el papel del nodo.\n"
+        f"3. `parameters`: Objeto JSON con la configuración EXACTA del nodo según su 'properties'.\n"
+        f"4. (SOLO si el nodo es condicional, como un IF) `branches`: un objeto con las ramas.\n\n"
         f"--- REGLAS DE CONFIGURACIÓN ---\n"
-        f"1. **Usa el Esquema:** Tus `parameters` DEBEN ser 100% precisos según el JSON de 'properties' de cada nodo.\n"
-        f"   (ej: Si 'properties' dice que el nombre de la hoja es `\"sheetName\": {{\"mode\": \"name\", ...}}`, DEBES usar esa estructura.)\n"
-        f"2. **Usa la Intención:** Usa el `purpose` y la `Petición` para decidir los VALORES.\n"
-        f"   (ej: Si el `purpose` es 'Guardar en hoja LinkedIn', el valor de 'sheetName.value' DEBE ser 'Leads de LinkedIn'.)\n"
-        f"3. **Usa Expresiones:** Para datos de nodos anteriores, usa expresiones (ej: `{{{{$json.source}}}}`). Asume que los datos vienen del nodo anterior o del Trigger (`$json` o `$node[\"nombre_nodo\"].json`).\n"
-        f"4. **No Alucines:** NO inventes parámetros que no existan en 'properties'. NO incluyas credenciales (usa `authentication: \"oAuth2\"` si es necesario).\n\n"
-        
-        f"--- Formato de Salida Obligatorio (SOLO JSON Lista) ---\n"
+        f"1. **Usa el esquema real:** No inventes parámetros. Solo usa claves que existan en 'properties'.\n"
+        f"2. **Respeta la intención:** Usa la petición y el 'purpose' para elegir valores concretos.\n"
+        f"3. **Expresiones:** Para datos que vienen de nodos anteriores, usa expresiones como "
+        f"`{{$json.campo}}` o `$node[\"NombreNodo\"].json`.\n"
+        f"4. **Credenciales:** No pongas credenciales reales. Solo selecciona el tipo de auth "
+        f"(por ejemplo, `\"authentication\": \"oAuth2\"`).\n"
+        f"5. **NO RAMAS FALSAS:** Solo añadas `branches` en nodos que realmente bifurcan (por ejemplo, IF).\n\n"
+        f"--- IMPORTANTE: RAMAS (branches) ---\n"
+        f"Si la lógica incluye decisiones del tipo \"si pasa X, haz Y; si no, haz Z\", debes modelarlo así:\n\n"
         f"```json\n"
         f"[\n"
         f"  {{\n"
-        f'    "nodeId": "n8n-nodes-base.if",\n'
-        f'    "purpose": "Verificar si la fuente es LinkedIn.",\n'
-        f'    "parameters": {{\n'
-        f'      "conditions": [ {{ "value1": "{{{{$json.source}}}}", "operation": "stringEqual", "value2": "LinkedIn" }} ],\n'
-        f'      "options": {{ "ignoreCase": true, "looseTypeValidation": true }}\n'
-        f'    }}\n'
-        f'  }},\n'
-        f'  {{\n'
-        f'    "nodeId": "n8n-nodes-base.googlesheets",\n'
-        f'    "purpose": "Guardar en hoja LinkedIn.",\n'
-        f'    "parameters": {{\n'
-        f'      "authentication": "oAuth2",\n'
-        f'      "resource": "sheet",\n'
-        f'      "operation": "append",\n'
-        f'      "documentId": {{ "mode": "id", "value": "YOUR_DOCUMENT_ID_HERE" }},\n'
-        f'      "sheetName": {{ "mode": "name", "value": "Leads de LinkedIn" }},\n'
-        f'      "dataMode": "defineBelow",\n'
-        f'      "fieldsUi": [\n'
-        f'        {{ "fieldId": "Nombre", "fieldValue": "{{{{$json.nombre}}}}" }},\n'
-        f'        {{ "fieldId": "Email", "fieldValue": "{{{{$json.email}}}}" }}\n'
-        f'      ]\n'
-        f'    }}\n'
-        f'  }}\n'
+        f"    \"nodeId\": \"n8n-nodes-base.webhook\",\n"
+        f"    \"purpose\": \"Recibir los datos del lead por HTTP.\",\n"
+        f"    \"parameters\": {{ \"httpMethod\": \"POST\", \"responseMode\": \"onReceived\", \"authentication\": \"none\" }}\n"
+        f"  }},\n"
+        f"  {{\n"
+        f"    \"nodeId\": \"n8n-nodes-base.if\",\n"
+        f"    \"purpose\": \"Comprobar si el país es España.\",\n"
+        f"    \"parameters\": {{\n"
+        f"      \"conditions\": [{{ \"value1\": \"{{$json.country}}\", \"operation\": \"stringEqual\", \"value2\": \"España\" }}]\n"
+        f"    }},\n"
+        f"    \"branches\": {{\n"
+        f"      \"true\": [\n"
+        f"        {{\n"
+        f"          \"nodeId\": \"n8n-nodes-base.googlesheets\",\n"
+        f"          \"purpose\": \"Guardar el lead en la hoja 'Leads España'.\",\n"
+        f"          \"parameters\": {{ /* configuración completa aquí */ }}\n"
+        f"        }}\n"
+        f"      ],\n"
+        f"      \"false\": [\n"
+        f"        {{\n"
+        f"          \"nodeId\": \"n8n-nodes-base.googlesheets\",\n"
+        f"          \"purpose\": \"Guardar el lead en la hoja 'Leads Internacional'.\",\n"
+        f"          \"parameters\": {{ /* configuración completa aquí */ }}\n"
+        f"        }}\n"
+        f"      ]\n"
+        f"    }}\n"
+        f"  }}\n"
         f"]\n"
-        f"```"
+        f"```\n\n"
+        f"Notas sobre `branches`:\n"
+        f"- Usa SIEMPRE las claves de rama \"true\" y \"false\" en nodos IF.\n"
+        f"- Cada rama es una LISTA de nodos, en el mismo formato (nodeId, purpose, parameters).\n"
+        f"- Los nodos que van dentro de `branches` no deben repetirse fuera de ellas.\n\n"
+        f"--- FORMATO DE SALIDA OBLIGATORIO ---\n"
+        f"Responde SOLO con un ARRAY JSON de pasos del workflow, en el mismo formato del ejemplo anterior.\n"
+        f"NO añadas explicaciones, texto extra ni ``` antes o después.\n"
     )
-    
-    try:
-        if not isinstance(model, genai.GenerativeModel): raise TypeError("Modelo IA no válido")
-        response = model.generate_content(prompt)
-        
-        # Esta es la línea clave: busca una LISTA [...]
-        json_str_match = re.search(r'```json\s*(\[[\s\S]*?\])\s*```', response.text, re.DOTALL)
 
+    try:
+        if not isinstance(model, genai.GenerativeModel):
+            raise TypeError("Modelo IA no válido")
+
+        response = model.generate_content(prompt)
+
+        # Buscamos una LISTA JSON [...] en la respuesta
+        json_str_match = re.search(r'```json\s*(\[[\s\S]*?\])\s*```', response.text, re.DOTALL)
         if not json_str_match:
             logger.warning("El arquitecto no usó '```json'. Buscando JSON genérico [ ... ]...")
             json_str_match = re.search(r'(\[[\s\S]*\])', response.text, re.DOTALL)
-        
-        # --- Fallback ultra simple ---
+
+        # Fallback ultra simple
         if not json_str_match:
             logger.warning("Fallback ultra-simple: buscando primer '[' y último ']'.")
-            text = response.text
+            text = response.text or ""
             start = text.find('[')
             end = text.rfind(']')
             if start != -1 and end != -1 and end > start:
@@ -395,70 +411,134 @@ def agent_architect(investigation_results, user_request, knowledge_base, model):
                     logger.error(f"Fallback simple no pudo parsear el JSON: {e}")
             return None
 
+        # Parseamos el JSON
+        logical_plan = json.loads(json_str_match.group(1))
+        logger.info(f"Plan de arquitecto (con parámetros) generado:\n{json.dumps(logical_plan, indent=2)}")
 
-        # --- FIN DEL CAMBIO! ---
-
-        if json_str_match:
-            logical_plan = json.loads(json_str_match.group(1))
-            logger.info(f"Plan de arquitecto (con parámetros) generado:\n{json.dumps(logical_plan, indent=2)}")
-            
-            if not isinstance(logical_plan, list) or not all(isinstance(item, dict) and 'nodeId' in item and 'parameters' in item for item in logical_plan):
-                 logger.error(f"El arquitecto no devolvió la estructura [{{'nodeId': ..., 'parameters': ...}}]")
-                 return None
-            
-            return logical_plan # Devolvemos el plan CON parámetros
-        else:
-            logger.error(f"Arquitecto no devolvió JSON válido. Respuesta: {response.text}")
+        # Validación mínima
+        if not isinstance(logical_plan, list):
+            logger.error("El arquitecto no devolvió una LISTA de pasos.")
             return None
+
+        for item in logical_plan:
+            if not isinstance(item, dict) or 'nodeId' not in item or 'parameters' not in item:
+                logger.error("Paso del plan sin 'nodeId' o 'parameters'.")
+                return None
+
+        return logical_plan
+
     except Exception as e:
         logger.error(f"Error en Agente Arquitecto: {e}", exc_info=True)
         return None
+
 # AGENTE REDACTOR TÉCNICO
 def agent_technical_writer(nodes_to_document, user_request, model):
     """
-    Genera instrucciones técnicas y notas de ayuda para cada nodo del workflow.
+    Genera instrucciones técnicas y notas claras para usuarios no técnicos,
+    explicando propósito, configuración realizada y datos que deben completarse.
     """
     logger.info("Iniciando Agente Redactor Técnico (Manual de Vuelo)...")
+
     if not nodes_to_document:
         logger.warning("Lista de nodos para documentar está vacía.")
         return []
-    
-    workflow_summary = [f"- Paso {i+1}: {node.get('name')} ({node.get('type')})" for i, node in enumerate(nodes_to_document)]
+
+    # Resumen del workflow
+    workflow_summary = [
+        f"- Paso {i+1}: {node.get('name')} ({node.get('type')})"
+        for i, node in enumerate(nodes_to_document)
+    ]
     workflow_plan_str = "\n".join(workflow_summary)
-    
+
     for node in nodes_to_document:
+
         node_type = node.get('type', '')
         node_name = node.get('name', 'NodoDesconocido')
-        
-        if 'Trigger' in node_type:
-            node['instructions'] = ("**Propósito:** Iniciar el flujo automáticamente.\n"
-                                    "**Tareas autocompletadas:** Nodo configurado.\n"
-                                    "**Tareas pendientes:** Verifica credenciales y evento.\n"
-                                    "**Consejo:** Prueba en modo manual.")
-            logger.info(f"Nota estándar para Trigger: {node_name}")
-            continue
-        
-        prompt = (f"Eres Asistente n8n. Redacta nota práctica para nodo '{node_name}' ({node_type}).\n"
-                  f"**Petición:** {user_request}\n"
-                  f"**Plan:**\n{workflow_plan_str}\n"
-                  f"**Config IA (LOS PARÁMETROS QUE HE RELLENADO):**\n{json.dumps(node.get('parameters', {}), indent=2)}\n\n"
-                  f"--- FORMATO OBLIGATORIO (texto plano) ---\n"
-                  f"**Propósito:** [Objetivo en 1 frase]\n"
-                  f"**Tareas autocompletadas:** [Qué configuró IA (ej. expresiones, lógica)]\n"
-                  f"**Tareas pendientes para ti:** [¡¡IMPORTANTE!! Analiza la 'Config IA' de arriba. Si ves CUALQUIER valor como 'YOUR_..._HERE' o similar, enumera explícitamente CADA campo que el usuario debe rellenar manualmente (ej. 'Rellena el spreadsheetId', 'Configura las credenciales'). Si no hay nada pendiente, escribe 'Ninguna.'.]\n"
-                  f"**Consejo del Co-Piloto:** [Tip corto]\n")
-        
+        purpose = node.get('purpose', '')  # ← IMPORTANTE: USA EL PURPOSE REAL
+        parameters = node.get('parameters', {})
+
+        # Si no hay propósito, coloca uno por defecto
+        if not purpose:
+            purpose = "Nodo sin propósito definido por la IA. Revisa su función en el flujo."
+
+        # Detectar campos que requieren configuración manual
+        missing_fields = []
+        serialized_params = json.dumps(parameters, indent=2)
+
+        for key in ["YOUR_", "your_", "REPLACE", "FALTANTE", "ID_HERE"]:
+            if key in serialized_params:
+                missing_fields.append(key)
+
+        # Construimos el PROMPT MEJORADO
+        prompt = f"""
+Eres un redactor técnico experto en automatización con n8n, pero debes escribir 
+para personas SIN conocimientos técnicos.
+
+Genera una nota muy breve, muy clara y muy práctica para el nodo '{node_name}' ({node_type}).
+
+=== CONTEXTO ===
+- Petición original: {user_request}
+- Paso dentro del workflow:
+{workflow_plan_str}
+
+=== PROPÓSITO REAL DEL NODO ===
+{purpose}
+
+=== PARÁMETROS CONFIGURADOS POR IA ===
+{serialized_params}
+
+=== INSTRUCCIONES QUE DEBES GENERAR ===
+
+Formato obligatorio (texto plano, NO markdown):
+
+Propósito:
+• Explica en 1 frase qué hace este nodo en este flujo.
+
+Qué hace:
+• Explica cómo usa los datos.
+• Usa lenguaje no técnico.
+
+Qué configuró automáticamente la IA:
+• Indica SOLO lo importante (expresiones, ramas, operación, etc.)
+
+Qué debes completar tú:
+• Si hay valores tipo 'YOUR_..._HERE', indícalos uno por uno.
+• Explica exactamente dónde conseguir cada dato.
+	EJEMPLOS:
+	- Google Sheets → el ID está en la URL entre /d/ y /edit
+	- Slack Webhook → crear uno en Ajustes > Apps > Incoming Webhooks
+	- Trello → el ID de la lista está en la URL al abrirla
+	- Webhook URL → copiar del nodo Webhook en n8n
+	- Airtable → el ID de la base está en la URL
+
+Consejo:
+• Un tip corto para validar que funciona.
+
+IMPORTANTE:
+- Respuestas muy cortas.
+- Nada de tecnicismos.
+- No repitas el propósito.
+"""
+
         try:
             if not isinstance(model, genai.GenerativeModel):
                 raise TypeError("Modelo IA no válido")
+
             response = model.generate_content(prompt)
             node['instructions'] = response.text.strip()
+
             logger.info(f"Nota generada para '{node_name}'")
+
         except Exception as e:
             logger.warning(f"Error generando nota para '{node_name}': {e}")
-            node['instructions'] = f"**Propósito:** Configurar nodo {node_name}.\n**Tareas pendientes:** Revisa la configuración manualmente.\n**Error:** {str(e)}"
-    
+            node['instructions'] = (
+                f"Propósito: {purpose}\n"
+                "Tareas pendientes: Revisa la configuración manualmente.\n"
+                f"Error del generador: {str(e)}"
+            )
+
     return nodes_to_document
+
 
 
 
@@ -495,6 +575,7 @@ def build_nodes_from_plan(logical_plan, knowledge_base):
 
             node_template['id'] = f"node_{len(nodes)}" 
             node_template['name'] = current_node_name
+            node_template['purpose'] = step.get('purpose', '')
             
             node_template['parameters'] = node_parameters
             
@@ -543,16 +624,52 @@ def final_assembler(nodes_with_params, connections, user_request):
     
     for i, node in enumerate(nodes_with_params):
         node_id = node.get('id', f'temp_{i}')
-        # Usamos el 'purpose' del nodo para la nota, es más limpio
+
+    # 🔹 Propósito definido por el Arquitecto
         node_purpose = node.get('purpose', 'Sin propósito definido.')
-        content = f"**NODO: {node.get('name')}**\n\n**Propósito:** {node_purpose}"
+
+    # 🔹 Instrucciones generadas por el agente redactor (si existen)
+        raw_instructions = node.get('instructions', '').strip()
+
+    # Para que la nota no sea un testamento, recortamos un poco
+    if raw_instructions and len(raw_instructions) > 600:
+        instructions_preview = raw_instructions[:600] + "…"
+    else:
+        instructions_preview = raw_instructions or "Revisa este nodo si quieres ajustar la configuración."
+
+    # 🔹 Contenido final de la sticky note
+    content = (
+        f"**NODO:** {node.get('name')}\n\n"
+        f"**Propósito:** {node_purpose}\n\n"
+        f"**Cómo está configurado / qué debes revisar:**\n"
+        f"{instructions_preview}"
+    )
+
+    dynamic_height = min(400, len(content.split('\n')) * 18 + 50)
+    max_note_height = max(max_note_height, dynamic_height)
+    new_note = {
+        "id": f"note_for_{node_id}",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "name": f"Info {node.get('name')}",
+        "parameters": {
+            "content": content,
+            "color": COLOR_PALETTE[i % len(COLOR_PALETTE)],
+            "width": FIXED_NOTE_WIDTH,
+            "height": dynamic_height
+        },
+        "position": [current_note_x, NOTE_Y_START]
+    }
+    new_notes.append(new_note)
+    current_note_x += FIXED_NOTE_WIDTH + NOTE_X_SPACING
+
         
         # (El resto de la lógica de las notas sigue igual)
-        dynamic_height = min(400, len(content.split('\n')) * 18 + 50)
-        max_note_height = max(max_note_height, dynamic_height)
-        new_note = {"id": f"note_for_{node_id}", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "name": f"Info {node.get('name')}", "parameters": {"content": content, "color": COLOR_PALETTE[i % len(COLOR_PALETTE)], "width": FIXED_NOTE_WIDTH, "height": dynamic_height}, "position": [current_note_x, NOTE_Y_START]}
-        new_notes.append(new_note)
-        current_note_x += FIXED_NOTE_WIDTH + NOTE_X_SPACING
+    dynamic_height = min(400, len(content.split('\n')) * 18 + 50)
+    max_note_height = max(max_note_height, dynamic_height)
+    new_note = {"id": f"note_for_{node_id}", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "name": f"Info {node.get('name')}", "parameters": {"content": content, "color": COLOR_PALETTE[i % len(COLOR_PALETTE)], "width": FIXED_NOTE_WIDTH, "height": dynamic_height}, "position": [current_note_x, NOTE_Y_START]}
+    new_notes.append(new_note)
+    current_note_x += FIXED_NOTE_WIDTH + NOTE_X_SPACING
         
     node_positions = {}
     X_START, Y_START_NODES, X_SPACING, Y_SPACING = 250, NOTE_Y_START + max_note_height + 100, 350, 150
@@ -595,7 +712,7 @@ def final_assembler(nodes_with_params, connections, user_request):
          elif 'position' not in node: node['position'] = [X_START - 200, Y_START_NODES]
          
     final_nodes_cleaned = []
-    required_keys = ["parameters", "name", "type", "typeVersion", "position", "id", "credentials"]
+    required_keys = ["parameters", "name", "type", "typeVersion", "position", "id", "credentials","purpose","instructions"]
     all_nodes_final = nodes_with_params + new_notes
     
     for node in all_nodes_final:
