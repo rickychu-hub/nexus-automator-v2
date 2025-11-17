@@ -7,6 +7,7 @@ import logging
 import time
 import re
 import unicodedata
+import urllib.parse
 
 # --- FUNCIÓN PARA GENERAR NOMBRE CORTO ---
 def generar_nombre_corto(briefing_text: str) -> str:
@@ -42,6 +43,21 @@ def generar_nombre_corto(briefing_text: str) -> str:
     name = re.sub(r'[^a-z0-9_]+', '', name)
 
     return name or "workflow"
+def build_n8n_import_url(workflow_json: dict) -> str:
+    """
+    Crea una URL que abre n8n con el workflow ya cargado en /workflow/new.
+    Usa la URL base de N8N_BASE_URL y pasa el JSON en el query param 'data'.
+    """
+    try:
+        raw_json = json.dumps(workflow_json, ensure_ascii=False)
+        encoded = urllib.parse.quote(raw_json)
+        base = N8N_BASE_URL.rstrip("/")
+        # Puedes cambiar /workflow/new por /workflow/import si prefieres otra ruta
+        return f"{base}/workflow/new?data={encoded}"
+    except Exception as e:
+        logger.error(f"Error construyendo URL para n8n: {e}", exc_info=True)
+        return ""
+
 
 
 # --- CONFIGURACIÓN BÁSICA ---
@@ -50,6 +66,8 @@ st.set_page_config(page_title="Nexus Automator 🤖", page_icon="🤖", layout="
 # URLs
 INTERVIEW_URL = os.getenv("INTERVIEW_URL", "http://localhost:8000/interview/")
 GENERATION_URL = os.getenv("GENERATION_URL", "http://localhost:8000/create-workflow-streaming/")
+
+N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +148,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- FUNCIÓN PARA MOSTRAR MENSAJES ---
 def display_message(message):
     with st.chat_message(message["role"]):
         # Mostrar contenido normal o JSON
@@ -140,8 +157,10 @@ def display_message(message):
         except Exception:
             st.markdown(message["content"])
 
-        # Si hay workflow generado, activar descarga
+        # Si hay workflow generado, activar descarga + abrir en n8n
         if message.get("workflow_json"):
+            workflow_json = message["workflow_json"]
+
             # ID único seguro para el archivo y botón
             unique_id = str(time.time_ns())[-6:]
 
@@ -156,12 +175,16 @@ def display_message(message):
             st.download_button(
                 key=f"download_{unique_id}",
                 label="📥 Descargar Workflow",
-                data=json.dumps(message["workflow_json"], indent=2),
+                data=json.dumps(workflow_json, indent=2),
                 file_name=file_name,
                 mime="application/json",
                 use_container_width=True
             )
 
+            # URL para abrir directamente en n8n
+            n8n_url = build_n8n_import_url(workflow_json)
+            if n8n_url:
+                st.markdown(f"[🔗 Abrir este workflow en n8n]({n8n_url})")
 
 # --- GESTIÓN DE ENTRADA ---
 def handle_user_input(user_input):
