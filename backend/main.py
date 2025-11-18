@@ -844,34 +844,39 @@ async def stream_generation_pipeline(final_prompt: str):
         yield f"Investigador encontró {len(investigation_results.get('candidate_nodes', []))} nodos y {len(investigation_results.get('case_studies', []))} casos.\n"
         await asyncio.sleep(0.1)
 
-        # --- Paso 2: Arquitecto (ahora también Configura) ---
+        # --- Paso 2: Super-Arquitecto (Plan + Configuración) ---
         yield "Paso 2: Iniciando Super-Arquitecto (Plan y Configuración)... 🏛️🛠️\n"
+        # El arquitecto ahora devuelve el plan YA configurado con parámetros
         logical_plan = agent_architect(investigation_results, final_prompt, knowledge_base, model)
+        
         if not logical_plan:
             yield "ERROR: El Arquitecto no pudo generar un plan."
             return
+        
         yield "Arquitecto generó el plan lógico y los parámetros.\n"
         await asyncio.sleep(0.1)
 
         # --- Paso 3: Builder ---
-        nodes_template, connections = build_nodes_from_plan(logical_plan, knowledge_base)
-        if not nodes_template:
+        # El builder V6 ya sabe leer los parámetros del plan del arquitecto
+        nodes_with_params, connections = build_nodes_from_plan(logical_plan, knowledge_base)
+        
+        if not nodes_with_params:
             yield "ERROR: El Builder no pudo construir nodos del plan."
             return
-        nodes_with_params = nodes_template 
+            
         yield f"Builder construyó el esqueleto de {len(nodes_with_params)} nodos.\n"
         await asyncio.sleep(0.1)
 
-        # --- PASO 4 y 5 ELIMINADOS ---
-        
-        # --- Paso 4: Redactor Técnico (era el 6) ---
+        # --- (ELIMINADOS: Configurador y Validador) ---
+        # Ya no hacen falta porque el Arquitecto hizo su trabajo.
+
+        # --- Paso 4: Redactor Técnico ---
         yield "Paso 4: Iniciando Agente Redactor Técnico... 📝\n"
         nodes_with_instructions = agent_technical_writer(nodes_with_params, final_prompt, model)
         yield "Redactor escribió las notas de ayuda.\n"
         await asyncio.sleep(0.1)
 
-        # --- Paso 5: Ensamblador (era el 7) ---
-               # --- Paso 5: Ensamblador (era el 7) ---
+        # --- Paso 5: Ensamblador ---
         yield "Paso 5: Ensamblando workflow final... 🏗️\n"
         final_workflow_str = final_assembler(nodes_with_instructions, connections, final_prompt)
         final_summary = "Workflow generado. Revisa las notas para pasos finales." 
@@ -879,11 +884,9 @@ async def stream_generation_pipeline(final_prompt: str):
         # Convertimos a dict
         final_workflow_json = json.loads(final_workflow_str)
 
-        # ✅ PASO NUEVO: Validar y corregir el workflow antes de devolverlo
-        final_workflow_json = validar_y_corregir_workflow(final_workflow_json)
-
-        logger.info("PIPELINE DE GENERACIÓN (V6) COMPLETADO Y VALIDADO.")
-
+        # Opcional: Aquí podrías llamar a validar_y_corregir_workflow(final_workflow_json) si la añadiste
+        
+        logger.info("PIPELINE DE GENERACIÓN (V6) COMPLETADO.")
 
     except Exception as e:
         logger.error(f"Error crítico en V6 Stream Pipeline: {e}", exc_info=True)
