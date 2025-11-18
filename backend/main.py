@@ -597,7 +597,7 @@ def build_nodes_from_plan(logical_plan, knowledge_base):
     logger.info("✅ Estructura pre-construida (V6).")
     return nodes, connections
 
-    # ASSEMBLER
+# ASSEMBLER
 def final_assembler(nodes_with_params, connections, user_request):
     if not isinstance(nodes_with_params, list):
         logger.error("final_assembler recibió 'nodes_with_params' inválido.")
@@ -746,6 +746,74 @@ def final_assembler(nodes_with_params, connections, user_request):
     logger.info("✅ Workflow final ensamblado.")
     return json.dumps(final_workflow, indent=2, ensure_ascii=False)
 
+def validar_y_corregir_workflow(w: dict) -> dict:
+    """
+    Valida y corrige el workflow generado por la IA para evitar errores tontos en n8n.
+    - Asegura campos básicos
+    - Asegura IDs únicos
+    - Recorta notas demasiado largas
+    - Garantiza que los IF tengan ramas true/false definidas
+    """
+    if not isinstance(w, dict):
+        return {
+            "name": "Workflow inválido generado por Nexus",
+            "nodes": [],
+            "connections": {},
+            "active": False,
+            "settings": {},
+            "staticData": None,
+        }
+
+    # 1. Asegurar campos básicos
+    w.setdefault("name", "Automatización generada con Nexus")
+    w.setdefault("nodes", [])
+    w.setdefault("connections", {})
+    w.setdefault("active", False)
+    w.setdefault("settings", {})
+    w.setdefault("staticData", None)
+
+    # 2. Asegurar IDs únicos en nodos
+    ids_vistos = set()
+    for i, node in enumerate(w["nodes"]):
+        node_id = node.get("id")
+        if not node_id or node_id in ids_vistos:
+            node_id = f"node_{i}"
+            node["id"] = node_id
+        ids_vistos.add(node_id)
+
+    # 3. Limitar tamaño de sticky notes / notas
+    for node in w["nodes"]:
+        if node.get("type") == "n8n-nodes-base.stickyNote":
+            params = node.setdefault("parameters", {})
+            content = params.get("content", "")
+            if isinstance(content, str) and len(content) > 3000:
+                params["content"] = content[:3000] + "\n\n[Nota recortada automáticamente por Nexus]"
+
+    # 4. Ramas de IF bien definidas en connections
+    connections = w.get("connections", {})
+    for node in w["nodes"]:
+        if node.get("type") == "n8n-nodes-base.if":
+            node_name = node.get("name")
+            if not node_name:
+                continue
+
+            node_conns = connections.setdefault(node_name, {})
+            main_conns = node_conns.setdefault("main", [])
+
+            # Asegurar que haya al menos 2 listas (true / false)
+            while len(main_conns) < 2:
+                main_conns.append([])
+
+            # Si por algún motivo no son listas, las normalizamos
+            for idx in range(2):
+                if not isinstance(main_conns[idx], list):
+                    main_conns[idx] = []
+
+            node_conns["main"] = main_conns
+            connections[node_name] = node_conns
+
+    w["connections"] = connections
+    return w
 
 async def stream_generation_pipeline(final_prompt: str):
     logger.info("Iniciando pipeline de generación (V6 - Arquitecto Unificado)...")
@@ -803,13 +871,19 @@ async def stream_generation_pipeline(final_prompt: str):
         await asyncio.sleep(0.1)
 
         # --- Paso 5: Ensamblador (era el 7) ---
+               # --- Paso 5: Ensamblador (era el 7) ---
         yield "Paso 5: Ensamblando workflow final... 🏗️\n"
         final_workflow_str = final_assembler(nodes_with_instructions, connections, final_prompt)
         final_summary = "Workflow generado. Revisa las notas para pasos finales." 
 
+        # Convertimos a dict
         final_workflow_json = json.loads(final_workflow_str)
 
-        logger.info("PIPELINE DE GENERACIÓN (V6) COMPLETADO.")
+        # ✅ PASO NUEVO: Validar y corregir el workflow antes de devolverlo
+        final_workflow_json = validar_y_corregir_workflow(final_workflow_json)
+
+        logger.info("PIPELINE DE GENERACIÓN (V6) COMPLETADO Y VALIDADO.")
+
 
     except Exception as e:
         logger.error(f"Error crítico en V6 Stream Pipeline: {e}", exc_info=True)
