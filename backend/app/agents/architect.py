@@ -6,13 +6,34 @@ import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
+def clean_json_text(text):
+    """
+    Limpia la respuesta de la IA para extraer solo el JSON válido.
+    Elimina bloques de código Markdown y busca el primer '[' y último ']'.
+    """
+    if not text:
+        return ""
+    
+    # 1. Eliminar marcadores de Markdown (```json ... ```)
+    text = re.sub(r'```json\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'```\s*', '', text)
+    
+    # 2. Buscar el array JSON explícitamente
+    start = text.find('[')
+    end = text.rfind(']')
+    
+    if start != -1 and end != -1:
+        return text[start:end+1]
+    
+    return text.strip()
+
 def agent_architect(investigation_results, user_request, knowledge_base_memory, model):
     logger.info("🏛️ Iniciando Agente Arquitecto...")
     
     candidate_node_ids = investigation_results.get("candidate_nodes", [])
-    case_studies = investigation_results.get("case_studies", []) # Estos son strings de patrones ahora
+    case_studies = investigation_results.get("case_studies", []) 
 
-    # Preparamos contexto técnico del JSON en memoria
+    # Preparamos contexto técnico del JSON en memoria (Limitado para no saturar token limit)
     candidate_details = []
     for nid in candidate_node_ids:
         node_info = knowledge_base_memory.get(nid.lower())
@@ -20,36 +41,46 @@ def agent_architect(investigation_results, user_request, knowledge_base_memory, 
             candidate_details.append({
                 "nodeId": nid,
                 "description": node_info.get('description', ''),
-                "properties_schema": node_info.get('properties', {}) # Esquema real
+                # Simplificamos properties para ahorrar tokens y reducir errores de sintaxis
+                "properties_hint": "Usa las propiedades estándar de este nodo." 
             })
 
     prompt = (
         f"Eres el Arquitecto de Nexus OS. Diseña un workflow de n8n detallado.\n\n"
         f"**Petición:** \"{user_request}\"\n"
-        f"**Patrones de Experiencia (Referencias):**\n{json.dumps(case_studies, indent=2)}\n\n"
-        f"**Especificaciones Técnicas de Nodos:**\n{json.dumps(candidate_details, indent=2)}\n\n"
-        f"**Instrucción:** Genera un ARRAY JSON con la lógica del flujo. Para cada paso incluye:\n"
-        f"1. `nodeId`: ID exacto.\n"
-        f"2. `parameters`: Configuración basada en el 'properties_schema'.\n"
-        f"3. `purpose`: Explicación breve.\n"
-        f"4. `branches`: (Solo si es IF) Objeto con claves 'true'/'false' conteniendo arrays de pasos.\n\n"
-        f"Responde SOLO con el JSON."
+        f"**Nodos Disponibles:**\n{json.dumps(candidate_details, indent=2)}\n\n"
+        f"**Instrucción CRÍTICA:**\n"
+        f"Genera un ARRAY JSON válido. NO escribas texto antes ni después. NO uses comentarios //.\n"
+        f"Asegúrate de cerrar todas las comillas y corchetes.\n\n"
+        f"Estructura requerida:\n"
+        f"[\n"
+        f"  {{\n"
+        f"    \"nodeId\": \"...\",\n"
+        f"    \"purpose\": \"...\",\n"
+        f"    \"parameters\": {{ ... }},\n"
+        f"    \"branches\": {{ \"true\": [...], \"false\": [...] }} \n"
+        f"  }}\n"
+        f"]"
     )
 
     try:
+        # Generar contenido
         response = model.generate_content(prompt)
-        # Lógica robusta de extracción de JSON
-        match = re.search(r'```json\s*(\[.*?\])\s*```', response.text, re.DOTALL)
-        if not match:
-             match = re.search(r'(\[.*\])', response.text, re.DOTALL)
+        raw_text = response.text
         
-        if match:
-            plan = json.loads(match.group(1))
-            logger.info("✅ Plan arquitectónico generado.")
+        # Limpieza quirúrgica
+        cleaned_text = clean_json_text(raw_text)
+        
+        # Intentar parsear
+        try:
+            plan = json.loads(cleaned_text)
+            logger.info("✅ Plan arquitectónico generado y parseado correctamente.")
             return plan
-        else:
-            logger.error("❌ El Arquitecto no devolvió un JSON Array válido.")
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Error de Sintaxis JSON en Arquitecto: {e}")
+            logger.debug(f"Texto problemático: {cleaned_text[:500]}...") # Log parcial para debug
             return None
+            
     except Exception as e:
-        logger.error(f"❌ Error crítico en Arquitecto: {e}")
+        logger.error(f"❌ Error crítico en Arquitecto (General): {e}", exc_info=True)
         return None
