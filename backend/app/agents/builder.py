@@ -6,7 +6,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# --- 1. BUILDER (Lógica intacta) ---
+# --- 1. BUILDER (Unchanged) ---
 def build_nodes_from_plan(logical_plan, knowledge_base_memory):
     logger.info("🏗️ Builder: Construyendo estructura...")
     if not isinstance(logical_plan, list):
@@ -61,9 +61,9 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
     process_plan_recursive(logical_plan)
     return nodes, connections
 
-# --- 2. ASSEMBLER (Con Gravedad y Espacio) ---
+# --- 2. ASSEMBLER (Unchanged) ---
 def final_assembler(nodes, connections, user_request):
-    logger.info("📐 Assembler: Aplicando Layout con Gravedad y Reparación...")
+    logger.info("📐 Assembler: Aplicando Layout...")
 
     node_map = {n["name"]: n for n in nodes}
     X_GAP, Y_PER_BRANCH_GAP, NOTE_OFFSET = 450, 600, 300
@@ -110,7 +110,6 @@ def final_assembler(nodes, connections, user_request):
     for conns in connections.values():
         for branch in conns.get("main", []):
             for item in branch: targets.add(item["node"])
-    
     start_nodes = [n["name"] for n in nodes if n["name"] not in targets and "stickyNote" not in n["type"]]
     if start_nodes:
         position_recursive(start_nodes[0], 200, 800, 0)
@@ -130,7 +129,6 @@ def final_assembler(nodes, connections, user_request):
             else:
                 note["position"] = [0, -600]
 
-    # Limpieza
     final_nodes = []
     allowed_keys = ["parameters", "name", "type", "typeVersion", "position", "id", "credentials", "notes"]
     for node in nodes:
@@ -143,67 +141,61 @@ def final_assembler(nodes, connections, user_request):
         "connections": connections,
         "active": False,
         "settings": {},
-        "meta": {"generated_by": "Nexus OS v6.0 (Auto-Repair)"}
+        "meta": {"generated_by": "Nexus OS v7.0 (Enforced Rules)"}
     }
     
-    # ¡AQUÍ LLAMAMOS AL NUEVO REPARADOR!
-    return json.dumps(validar_y_corregir_workflow(workflow_dict), indent=2)
+    return json.dumps(validar_y_reparar_deep(workflow_dict), indent=2)
 
-# --- 3. SAFETY NET (Reparador de Conexiones Switch) ---
-def validar_y_corregir_workflow(w: dict) -> dict:
+
+# --- 3. THE ENFORCER (Deep Repair) ---
+def validar_y_reparar_deep(w: dict) -> dict:
     if not isinstance(w, dict): return w
     
     connections = w.get("connections", {})
     nodes = w.get("nodes", [])
     nodes_map = {n['name']: n for n in nodes}
 
-    # 1. IDs únicos
     for i, node in enumerate(nodes):
         if not node.get("id"): node["id"] = f"node_{i}_{int(time.time())}"
 
-    # 2. REPARACIÓN DE SWITCHES
     for node_name, conns in connections.items():
         node = nodes_map.get(node_name)
-        if not node or node.get('type') != 'n8n-nodes-base.switch': continue
-
-        # Cuántas salidas estamos intentando usar
-        main_outputs = conns.get('main', [])
-        required_outputs = len(main_outputs)
-
-        # Cuántas reglas tiene configuradas el nodo realmente
-        params = node.get('parameters', {})
-        # El Switch puede tener 'rules' o 'conditions' dependiendo de la versión/modo
-        list_key = 'rules' if 'rules' in params else 'conditions'
+        if not node: continue
         
-        # Si no existe la lista, la creamos
-        if list_key not in params: 
-            list_key = 'rules'
-            params[list_key] = []
+        # >>> FIX SWITCH NODE <<<
+        if node.get('type') == 'n8n-nodes-base.switch':
+            params = node.get('parameters', {})
+            main_outputs = conns.get('main', [])
+            required_outputs = len(main_outputs)
 
-        current_rules = len(params[list_key])
-
-        # Si usamos más salidas de las que hay reglas, INYECTAMOS reglas fantasma
-        # para que n8n pinte las líneas.
-        if required_outputs > current_rules:
-            missing = required_outputs - current_rules
-            logger.warning(f"🔧 Reparando Switch '{node_name}': Faltan {missing} reglas. Inyectando...")
+            # 1. FORZAR MODO 'rules' (Evita el modo 'expression' o 'define')
+            # Según tu captura, el modo correcto es 'rules'.
+            # Eliminamos 'mode': 'expression' si existe.
+            if params.get('mode') == 'expression' or 'conditions' in params:
+                logger.warning(f"🔧 Switch '{node_name}': Forzando cambio de 'expression' a 'rules'")
+                params['mode'] = 'rules'
             
-            for _ in range(missing):
-                # Inyectamos una regla genérica "FIX_ME"
-                # Esto habilita el pin de salida visualmente
-                if list_key == 'rules':
-                    params[list_key].append({
-                        "value": "FIX_ME_AI_MISSED_THIS",
-                        "operation": "equal" # Ajuste básico
-                    })
-                else:
-                    params[list_key].append({
-                        "value1": "FIX_ME",
-                        "operation": "equal",
-                        "value2": "FIX_ME"
+            # 2. ESTRUCTURA CORRECTA: rules -> values -> [rules list]
+            if 'rules' not in params: params['rules'] = {}
+            if 'values' not in params['rules']: params['rules']['values'] = []
+            
+            current_rules = params['rules']['values']
+            
+            # 3. SI FALTAN REGLAS PARA LOS CABLES, INYECTARLAS
+            # Si el Builder creó 3 salidas, debe haber 3 reglas.
+            if len(current_rules) < required_outputs:
+                missing = required_outputs - len(current_rules)
+                for _ in range(missing):
+                    # Estructura estándar para n8n Switch Rules
+                    current_rules.append({
+                        "conditions": {
+                            "options": { "caseSensitive": True, "leftValue": "", "typeValidation": "strict", "version": 2 },
+                            "conditions": [{ "operator": { "type": "string", "operation": "equals" }, "leftValue": "FIX_ME", "rightValue": "" }],
+                            "combinator": "and"
+                        }
                     })
             
-            node['parameters'] = params # Guardamos el cambio
+            node['parameters'] = params
 
     w["connections"] = connections
     return w
