@@ -6,8 +6,9 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# --- 1. BUILDER (Construcción lógica) ---
+# --- 1. BUILDER (Lógica intacta) ---
 def build_nodes_from_plan(logical_plan, knowledge_base_memory):
+    # ... (Misma lógica de siempre, copia esto igual que antes o usa el bloque completo abajo)
     logger.info("🏗️ Builder: Construyendo estructura...")
     if not isinstance(logical_plan, list):
         return [], {}
@@ -33,7 +34,6 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
             node_counts[base_name] = count
             current_node_name = f"{base_name}_{count}"
 
-            # ID temporal robusto
             node_template['id'] = f"node_{len(nodes)}_{int(time.time())}" 
             node_template['name'] = current_node_name
             node_template['purpose'] = step.get('purpose', '')
@@ -42,7 +42,6 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
             nodes.append(node_template)
 
             if last_node_in_chain:
-                # Lógica de conexión
                 if branch_type is not None and i == 0:
                     branch_index = 0 if branch_type == 'true' else 1
                     connections.setdefault(last_node_in_chain, {"main": [[], []]})
@@ -64,18 +63,17 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
     process_plan_recursive(logical_plan)
     return nodes, connections
 
-# --- 2. ASSEMBLER INTELIGENTE (Auto-Layout) ---
+# --- 2. ASSEMBLER MEJORADO (Más espacio) ---
 def final_assembler(nodes, connections, user_request):
-    logger.info("📐 Assembler: Aplicando Auto-Layout Inteligente...")
+    logger.info("📐 Assembler: Aplicando Layout Espacioso...")
 
-    # Mapa rápido de nombres a objetos nodo
     node_map = {n["name"]: n for n in nodes}
     
-    # Configuración de espaciado
-    X_GAP = 380
-    Y_GAP = 300
+    # --- CONFIGURACIÓN DE ESPACIADO (AUMENTADA) ---
+    X_GAP = 450      # Más separación horizontal entre nodos
+    Y_BRANCH_GAP = 400 # ¡MUCHO MÁS! Separación vertical entre ramas True/False para que quepan las notas
+    NOTE_OFFSET = 300 # Cuánto subimos la nota respecto al nodo (antes 280)
     
-    # Conjunto para trackear visitados y evitar bucles infinitos
     visited = set()
 
     def position_recursive(node_name, x, y):
@@ -85,62 +83,56 @@ def final_assembler(nodes, connections, user_request):
         visited.add(node_name)
         node = node_map[node_name]
         
-        # Asignar posición si no es una nota (las notas se procesan después)
         if "stickyNote" not in node.get("type", ""):
             node["position"] = [x, y]
 
-        # Buscar hijos en las conexiones
         if node_name in connections:
             main_conns = connections[node_name].get("main", [])
             
-            # Caso 1: Ramificación (IF) - Mínimo 2 ramas
+            # Caso IF (Ramas)
             if len(main_conns) > 1:
                 # Rama True (Arriba)
                 if main_conns[0]:
                     next_node = main_conns[0][0]["node"]
-                    position_recursive(next_node, x + X_GAP, y - 200)
+                    # Subimos Y para dejar espacio a la rama de abajo
+                    position_recursive(next_node, x + X_GAP, y - (Y_BRANCH_GAP / 2))
                 # Rama False (Abajo)
                 if main_conns[1]:
                     next_node = main_conns[1][0]["node"]
-                    position_recursive(next_node, x + X_GAP, y + 200)
+                    # Bajamos Y considerablemente
+                    position_recursive(next_node, x + X_GAP, y + (Y_BRANCH_GAP / 2))
             
-            # Caso 2: Lineal
+            # Caso Lineal
             elif len(main_conns) == 1 and main_conns[0]:
                 next_node = main_conns[0][0]["node"]
                 position_recursive(next_node, x + X_GAP, y)
 
-    # 1. Encontrar nodo inicial (el que no es destino de nadie)
+    # Buscar inicio y posicionar
     targets = set()
     for conns in connections.values():
         for branch in conns.get("main", []):
-            for item in branch:
-                targets.add(item["node"])
+            for item in branch: targets.add(item["node"])
     
     start_nodes = [n["name"] for n in nodes if n["name"] not in targets and "stickyNote" not in n["type"]]
     
     if start_nodes:
-        position_recursive(start_nodes[0], 200, 400) # Empezar en (200, 400)
+        position_recursive(start_nodes[0], 200, 600) # Empezamos más abajo (600) para tener margen arriba
     
-    # 2. POSICIONAMIENTO DE NOTAS (El Imán)
-    # Recorremos las notas y las pegamos a su nodo padre
+    # POSICIONAR NOTAS (Con más altura)
     for note in nodes:
         if note.get("type") == "n8n-nodes-base.stickyNote":
             note_id = note.get("id", "")
-            # El ID es "note_node_X_..." -> Buscamos "node_X_..."
             target_id = note_id.replace("note_", "")
-            
-            # Buscar el nodo objetivo en la lista
             target_node = next((n for n in nodes if n["id"] == target_id), None)
             
             if target_node and "position" in target_node:
                 tx, ty = target_node["position"]
-                # Colocar nota ENCIMA del nodo
-                note["position"] = [tx, ty - 280]
+                # Aquí aplicamos el nuevo OFFSET
+                note["position"] = [tx, ty - NOTE_OFFSET]
             else:
-                # Si falla, ponerla en una zona segura
-                note["position"] = [0, -400]
+                note["position"] = [0, -600]
 
-    # 3. Limpieza y Validación
+    # Limpieza final
     final_nodes = []
     allowed_keys = ["parameters", "name", "type", "typeVersion", "position", "id", "credentials", "notes"]
     for node in nodes:
@@ -153,21 +145,15 @@ def final_assembler(nodes, connections, user_request):
         "connections": connections,
         "active": False,
         "settings": {},
-        "meta": {"generated_by": "Nexus OS v4.5"}
+        "meta": {"generated_by": "Nexus OS v4.6"}
     }
     
     return json.dumps(validar_y_corregir_workflow(workflow_dict), indent=2)
 
-# --- 3. SAFETY NET (Mantener igual) ---
 def validar_y_corregir_workflow(w: dict) -> dict:
-    # (Mantener la lógica de validación anterior igual)
     if not isinstance(w, dict): return w
-    
-    # IDs únicos si faltan
     for i, node in enumerate(w.get("nodes", [])):
         if not node.get("id"): node["id"] = f"node_{i}_{int(time.time())}"
-
-    # IF connections fix
     connections = w.get("connections", {})
     nodes = w.get("nodes", [])
     for node in nodes:
@@ -176,6 +162,5 @@ def validar_y_corregir_workflow(w: dict) -> dict:
             if name:
                 conns = connections.setdefault(name, {}).setdefault("main", [])
                 while len(conns) < 2: conns.append([])
-    
     w["connections"] = connections
     return w
