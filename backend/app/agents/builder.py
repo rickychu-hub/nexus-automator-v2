@@ -6,9 +6,9 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# --- 1. BUILDER (Sin cambios) ---
+# --- 1. BUILDER (Soporte Multi-Rama) ---
 def build_nodes_from_plan(logical_plan, knowledge_base_memory):
-    logger.info("🏗️ Builder: Construyendo estructura...")
+    logger.info("🏗️ Builder: Construyendo estructura Multi-Rama...")
     if not isinstance(logical_plan, list):
         return [], {}
 
@@ -16,7 +16,8 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
     connections = {}
     node_counts = {}
 
-    def process_plan_recursive(plan, parent_node_name=None, branch_type=None):
+    # Ahora aceptamos 'forced_index' para saber exactamente por qué salida conectar
+    def process_plan_recursive(plan, parent_node_name=None, forced_index=None):
         nonlocal node_counts
         last_node_in_chain = parent_node_name 
 
@@ -40,41 +41,59 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
             
             nodes.append(node_template)
 
+            # --- LÓGICA DE CONEXIÓN CORREGIDA ---
             if last_node_in_chain:
-                if branch_type is not None and i == 0:
-                    branch_index = 0 if branch_type == 'true' else 1
-                    connections.setdefault(last_node_in_chain, {"main": [[], []]})
-                    while len(connections[last_node_in_chain]["main"]) <= branch_index:
-                        connections[last_node_in_chain]["main"].append([])
-                    connections[last_node_in_chain]["main"][branch_index].append({"node": current_node_name, "type": "main", "index": 0})
+                # Si es el primer nodo de una sub-rama, usamos el índice forzado que nos pasaron
+                if forced_index is not None and i == 0:
+                    target_index = forced_index
                 else:
-                    connections.setdefault(last_node_in_chain, {"main": [[]]})
-                    if not connections[last_node_in_chain]["main"]: connections[last_node_in_chain]["main"].append([])
-                    connections[last_node_in_chain]["main"][0].append({"node": current_node_name, "type": "main", "index": 0})
+                    # Si es una conexión lineal normal, siempre es la salida 0
+                    target_index = 0
+                
+                connections.setdefault(last_node_in_chain, {"main": []})
+                main_outputs = connections[last_node_in_chain]["main"]
+                
+                # Asegurar que existen arrays de salida suficientes
+                while len(main_outputs) <= target_index:
+                    main_outputs.append([])
+                
+                # Conectar
+                main_outputs[target_index].append({"node": current_node_name, "type": "main", "index": 0})
             
             last_node_in_chain = current_node_name
 
+            # --- RECURSIVIDAD MULTI-RAMA (SWITCH/IF) ---
             if 'branches' in step and isinstance(step['branches'], dict):
-                for branch, sub_plan in step['branches'].items():
+                # Iteramos las ramas y asignamos índices numéricos secuenciales (0, 1, 2...)
+                # Esto soporta IF (2 ramas) y SWITCH (N ramas)
+                branch_items = list(step['branches'].items())
+                
+                # Truco para IF: Si las claves son "true"/"false", intentamos ordenarlas para que true sea 0
+                if "true" in step['branches']:
+                    # Reordenar forzosamente: true primero (0), false segundo (1)
+                    branch_items.sort(key=lambda x: 0 if x[0] == "true" else 1)
+
+                for idx, (branch_name, sub_plan) in enumerate(branch_items):
                     if isinstance(sub_plan, list):
-                        process_plan_recursive(sub_plan, parent_node_name=current_node_name, branch_type=branch)
+                        # Pasamos el índice numérico (0, 1, 2) a la recursión
+                        process_plan_recursive(sub_plan, parent_node_name=current_node_name, forced_index=idx)
 
     process_plan_recursive(logical_plan)
     return nodes, connections
 
-# --- 2. ASSEMBLER DIRECCIONAL (El arreglo visual) ---
+# --- 2. ASSEMBLER DIRECCIONAL (Soporte Visual 'El Pulpo') ---
 def final_assembler(nodes, connections, user_request):
-    logger.info("📐 Assembler: Aplicando Layout Direccional...")
+    logger.info("📐 Assembler: Aplicando Layout Multi-Rama...")
 
     node_map = {n["name"]: n for n in nodes}
     
-    X_GAP = 450      
-    Y_BRANCH_GAP = 450 # Aumentado un poco más por seguridad
-    NOTE_OFFSET = 300 
+    X_GAP = 400
+    # Espaciado vertical base. Se multiplicará según el número de ramas.
+    Y_BASE_GAP = 200 
+    NOTE_OFFSET = 280
     
     visited = set()
 
-    # Añadimos un parámetro 'vertical_direction': -1 (Arriba), 1 (Abajo)
     def position_recursive(node_name, x, y, vertical_direction=-1):
         if node_name in visited or node_name not in node_map:
             return
@@ -84,42 +103,59 @@ def final_assembler(nodes, connections, user_request):
         
         if "stickyNote" not in node.get("type", ""):
             node["position"] = [x, y]
-            # Guardamos la preferencia de dirección en el nodo temporalmente
             node["_note_dir"] = vertical_direction
 
         if node_name in connections:
             main_conns = connections[node_name].get("main", [])
-            
-            # Caso IF (Ramas)
-            if len(main_conns) > 1:
-                # Rama True (Arriba) -> Mantenemos dirección -1 (Notas arriba)
-                if main_conns[0]:
-                    next_node = main_conns[0][0]["node"]
-                    position_recursive(next_node, x + X_GAP, y - (Y_BRANCH_GAP / 2), -1)
+            num_branches = len(main_conns)
+
+            # Caso Multi-Rama (Switch / If)
+            if num_branches > 1:
+                # Calculamos el "centro" para distribuir ramas simétricamente
+                # Ejemplo 3 ramas: índices 0, 1, 2. 
+                # Queremos offsets: -1 (Arriba), 0 (Centro), 1 (Abajo)
                 
-                # Rama False (Abajo) -> CAMBIAMOS dirección a 1 (Notas abajo)
-                if main_conns[1]:
-                    next_node = main_conns[1][0]["node"]
-                    position_recursive(next_node, x + X_GAP, y + (Y_BRANCH_GAP / 2), 1)
+                mid_point = (num_branches - 1) / 2
+                
+                for idx, branch in enumerate(main_conns):
+                    if not branch: continue
+                    next_node = branch[0]["node"]
+                    
+                    # Factor de desviación vertical
+                    # Si idx < mid_point -> Va arriba
+                    # Si idx > mid_point -> Va abajo
+                    deviation = idx - mid_point
+                    
+                    # Gap dinámico: cuantas más ramas, más espacio necesitamos
+                    dynamic_gap = Y_BASE_GAP * (num_branches - 1) * 0.8
+                    
+                    # Nueva Y
+                    new_y = y + (deviation * dynamic_gap)
+                    
+                    # Dirección de Notas:
+                    # Si la rama va arriba (deviation < 0) -> Notas Arriba (-1)
+                    # Si la rama va abajo (deviation > 0) -> Notas Abajo (1)
+                    # Si es la del medio (0) -> Alternamos o mandamos arriba (-1)
+                    new_dir = 1 if deviation > 0 else -1
+                    
+                    position_recursive(next_node, x + X_GAP, new_y, new_dir)
             
-            # Caso Lineal (Hereda la dirección del padre)
+            # Caso Lineal
             elif len(main_conns) == 1 and main_conns[0]:
                 next_node = main_conns[0][0]["node"]
                 position_recursive(next_node, x + X_GAP, y, vertical_direction)
 
-    # Buscar inicio
+    # Inicio
     targets = set()
     for conns in connections.values():
         for branch in conns.get("main", []):
             for item in branch: targets.add(item["node"])
-    
     start_nodes = [n["name"] for n in nodes if n["name"] not in targets and "stickyNote" not in n["type"]]
     
     if start_nodes:
-        # El tronco principal tiene dirección -1 (Notas arriba por defecto)
         position_recursive(start_nodes[0], 200, 600, -1)
     
-    # POSICIONAR NOTAS (Usando la dirección guardada)
+    # Posicionar Notas
     for note in nodes:
         if note.get("type") == "n8n-nodes-base.stickyNote":
             note_id = note.get("id", "")
@@ -128,25 +164,17 @@ def final_assembler(nodes, connections, user_request):
             
             if target_node and "position" in target_node:
                 tx, ty = target_node["position"]
-                # Leemos la dirección preferida (-1 o 1), por defecto Arriba (-1)
                 direction = target_node.get("_note_dir", -1)
-                
-                # Calculamos posición:
-                # Si direction es -1 (Arriba): ty - 300
-                # Si direction es  1 (Abajo):  ty + 150 (Un poco menos offset porque el nodo tiene altura)
                 
                 offset_pixels = NOTE_OFFSET if direction == -1 else (NOTE_OFFSET * 0.6)
                 final_y = ty + (direction * offset_pixels)
-                
-                # Ajuste extra: Si va abajo, sumamos la altura del nodo aprox (100px)
-                if direction == 1:
-                    final_y += 100
+                if direction == 1: final_y += 100
 
                 note["position"] = [tx, final_y]
             else:
                 note["position"] = [0, -600]
 
-    # Limpieza final (Eliminamos la marca temporal _note_dir)
+    # Limpieza
     final_nodes = []
     allowed_keys = ["parameters", "name", "type", "typeVersion", "position", "id", "credentials", "notes"]
     for node in nodes:
@@ -159,7 +187,7 @@ def final_assembler(nodes, connections, user_request):
         "connections": connections,
         "active": False,
         "settings": {},
-        "meta": {"generated_by": "Nexus OS v4.7"}
+        "meta": {"generated_by": "Nexus OS v5.0 (Multi-Branch)"}
     }
     
     return json.dumps(validar_y_corregir_workflow(workflow_dict), indent=2)
@@ -168,13 +196,12 @@ def validar_y_corregir_workflow(w: dict) -> dict:
     if not isinstance(w, dict): return w
     for i, node in enumerate(w.get("nodes", [])):
         if not node.get("id"): node["id"] = f"node_{i}_{int(time.time())}"
+    # Safety Net para Switch e IF
     connections = w.get("connections", {})
-    nodes = w.get("nodes", [])
-    for node in nodes:
-        if node.get("type") == "n8n-nodes-base.if":
-            name = node.get("name")
-            if name:
-                conns = connections.setdefault(name, {}).setdefault("main", [])
-                while len(conns) < 2: conns.append([])
+    # (Ya no forzamos 2 ramas estrictas, dejamos que la lógica dinámica mande, 
+    # pero aseguramos que 'main' sea una lista de listas)
+    for key, val in connections.items():
+        if "main" in val and not isinstance(val["main"], list):
+            val["main"] = []
     w["connections"] = connections
     return w
