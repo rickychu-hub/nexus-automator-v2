@@ -6,9 +6,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# --- 1. BUILDER (Lógica intacta) ---
+# --- 1. BUILDER (Sin cambios) ---
 def build_nodes_from_plan(logical_plan, knowledge_base_memory):
-    # ... (Misma lógica de siempre, copia esto igual que antes o usa el bloque completo abajo)
     logger.info("🏗️ Builder: Construyendo estructura...")
     if not isinstance(logical_plan, list):
         return [], {}
@@ -63,20 +62,20 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
     process_plan_recursive(logical_plan)
     return nodes, connections
 
-# --- 2. ASSEMBLER MEJORADO (Más espacio) ---
+# --- 2. ASSEMBLER DIRECCIONAL (El arreglo visual) ---
 def final_assembler(nodes, connections, user_request):
-    logger.info("📐 Assembler: Aplicando Layout Espacioso...")
+    logger.info("📐 Assembler: Aplicando Layout Direccional...")
 
     node_map = {n["name"]: n for n in nodes}
     
-    # --- CONFIGURACIÓN DE ESPACIADO (AUMENTADA) ---
-    X_GAP = 450      # Más separación horizontal entre nodos
-    Y_BRANCH_GAP = 400 # ¡MUCHO MÁS! Separación vertical entre ramas True/False para que quepan las notas
-    NOTE_OFFSET = 300 # Cuánto subimos la nota respecto al nodo (antes 280)
+    X_GAP = 450      
+    Y_BRANCH_GAP = 450 # Aumentado un poco más por seguridad
+    NOTE_OFFSET = 300 
     
     visited = set()
 
-    def position_recursive(node_name, x, y):
+    # Añadimos un parámetro 'vertical_direction': -1 (Arriba), 1 (Abajo)
+    def position_recursive(node_name, x, y, vertical_direction=-1):
         if node_name in visited or node_name not in node_map:
             return
         
@@ -85,29 +84,30 @@ def final_assembler(nodes, connections, user_request):
         
         if "stickyNote" not in node.get("type", ""):
             node["position"] = [x, y]
+            # Guardamos la preferencia de dirección en el nodo temporalmente
+            node["_note_dir"] = vertical_direction
 
         if node_name in connections:
             main_conns = connections[node_name].get("main", [])
             
             # Caso IF (Ramas)
             if len(main_conns) > 1:
-                # Rama True (Arriba)
+                # Rama True (Arriba) -> Mantenemos dirección -1 (Notas arriba)
                 if main_conns[0]:
                     next_node = main_conns[0][0]["node"]
-                    # Subimos Y para dejar espacio a la rama de abajo
-                    position_recursive(next_node, x + X_GAP, y - (Y_BRANCH_GAP / 2))
-                # Rama False (Abajo)
+                    position_recursive(next_node, x + X_GAP, y - (Y_BRANCH_GAP / 2), -1)
+                
+                # Rama False (Abajo) -> CAMBIAMOS dirección a 1 (Notas abajo)
                 if main_conns[1]:
                     next_node = main_conns[1][0]["node"]
-                    # Bajamos Y considerablemente
-                    position_recursive(next_node, x + X_GAP, y + (Y_BRANCH_GAP / 2))
+                    position_recursive(next_node, x + X_GAP, y + (Y_BRANCH_GAP / 2), 1)
             
-            # Caso Lineal
+            # Caso Lineal (Hereda la dirección del padre)
             elif len(main_conns) == 1 and main_conns[0]:
                 next_node = main_conns[0][0]["node"]
-                position_recursive(next_node, x + X_GAP, y)
+                position_recursive(next_node, x + X_GAP, y, vertical_direction)
 
-    # Buscar inicio y posicionar
+    # Buscar inicio
     targets = set()
     for conns in connections.values():
         for branch in conns.get("main", []):
@@ -116,9 +116,10 @@ def final_assembler(nodes, connections, user_request):
     start_nodes = [n["name"] for n in nodes if n["name"] not in targets and "stickyNote" not in n["type"]]
     
     if start_nodes:
-        position_recursive(start_nodes[0], 200, 600) # Empezamos más abajo (600) para tener margen arriba
+        # El tronco principal tiene dirección -1 (Notas arriba por defecto)
+        position_recursive(start_nodes[0], 200, 600, -1)
     
-    # POSICIONAR NOTAS (Con más altura)
+    # POSICIONAR NOTAS (Usando la dirección guardada)
     for note in nodes:
         if note.get("type") == "n8n-nodes-base.stickyNote":
             note_id = note.get("id", "")
@@ -127,12 +128,25 @@ def final_assembler(nodes, connections, user_request):
             
             if target_node and "position" in target_node:
                 tx, ty = target_node["position"]
-                # Aquí aplicamos el nuevo OFFSET
-                note["position"] = [tx, ty - NOTE_OFFSET]
+                # Leemos la dirección preferida (-1 o 1), por defecto Arriba (-1)
+                direction = target_node.get("_note_dir", -1)
+                
+                # Calculamos posición:
+                # Si direction es -1 (Arriba): ty - 300
+                # Si direction es  1 (Abajo):  ty + 150 (Un poco menos offset porque el nodo tiene altura)
+                
+                offset_pixels = NOTE_OFFSET if direction == -1 else (NOTE_OFFSET * 0.6)
+                final_y = ty + (direction * offset_pixels)
+                
+                # Ajuste extra: Si va abajo, sumamos la altura del nodo aprox (100px)
+                if direction == 1:
+                    final_y += 100
+
+                note["position"] = [tx, final_y]
             else:
                 note["position"] = [0, -600]
 
-    # Limpieza final
+    # Limpieza final (Eliminamos la marca temporal _note_dir)
     final_nodes = []
     allowed_keys = ["parameters", "name", "type", "typeVersion", "position", "id", "credentials", "notes"]
     for node in nodes:
@@ -145,7 +159,7 @@ def final_assembler(nodes, connections, user_request):
         "connections": connections,
         "active": False,
         "settings": {},
-        "meta": {"generated_by": "Nexus OS v4.6"}
+        "meta": {"generated_by": "Nexus OS v4.7"}
     }
     
     return json.dumps(validar_y_corregir_workflow(workflow_dict), indent=2)
