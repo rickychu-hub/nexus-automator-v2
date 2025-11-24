@@ -882,9 +882,8 @@ async def stream_generation_pipeline(final_prompt: str):
         final_summary = "Workflow generado. Revisa las notas para pasos finales." 
 
         # Convertimos a dict
-        final_workflow_json = json.loads(final_workflow_str)
-
-        # Opcional: Aquí podrías llamar a validar_y_corregir_workflow(final_workflow_json) si la añadiste
+        logger.info("Validando integridad estructural del workflow...")
+        final_workflow_json = validar_y_corregir_workflow(final_workflow_json)
         
         logger.info("PIPELINE DE GENERACIÓN (V6) COMPLETADO.")
 

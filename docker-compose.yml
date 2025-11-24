@@ -8,17 +8,20 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # CAMBIO: Ya no apuntamos a './chroma_data_persistent'
-      # Ahora apuntamos a un volumen gestionado por Docker llamado 'chroma_data'
+      # Datos de Chroma (Persistencia)
       - chroma_data:/data/chroma_db_v2
+      # [OPCIONAL] Montar código para Hot-Reloading en desarrollo
+      # Si cambias algo en local, se actualiza sin reconstruir
+      - ./backend/app:/app/app
     env_file:
       - ./backend/.env
-    restart: unless-stopped
+    # El comando de healthcheck sigue siendo válido porque la ruta /healthz no cambió
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
 
   # 👋 "El Rostro" (Streamlit)
   frontend:
