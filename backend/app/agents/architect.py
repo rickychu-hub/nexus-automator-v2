@@ -1,95 +1,77 @@
 # backend/app/agents/architect.py
 import logging
 import json
-import re
-import time
 import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-def clean_json_text(text):
-    """
-    Limpieza agresiva para extraer JSON de respuestas con ruido.
-    """
-    if not text: return ""
-    
-    start = text.find('[')
-    end = text.rfind(']')
-    
-    if start != -1 and end != -1:
-        return text[start:end+1]
-    
-    text = re.sub(r'```json\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'```\s*', '', text)
-    return text.strip()
-
 def agent_architect(investigation_results, user_request, knowledge_base_memory, model):
-    logger.info("🏛️ Iniciando Agente Arquitecto (Estricto + Retry)...")
+    logger.info("🏛️ Iniciando Agente Arquitecto (V10 - Native JSON Mode)...")
     
     candidate_node_ids = investigation_results.get("candidate_nodes", [])
     
-    # Lista simple de IDs válidos para validación en el prompt
-    valid_ids_list = [nid for nid in candidate_node_ids]
-
+    # Preparar contexto técnico
     candidate_details = []
     for nid in candidate_node_ids:
         node_info = knowledge_base_memory.get(nid.lower())
         if node_info:
             candidate_details.append({
-                "nodeId_REAL": nid, # Enfatizamos que este es el REAL
-                "description": node_info.get('description', ''),
-                "properties_hint": "Usa properties estándar." 
+                "nodeId": nid,
+                "desc": node_info.get('description', '')[:100], # Resumido
+                "props_hint": "Usa properties estándar." 
             })
 
-    base_prompt = (
-        f"Eres el Arquitecto de Nexus OS. Diseña un workflow de n8n.\n\n"
-        f"**Petición:** \"{user_request}\"\n"
-        f"**CATÁLOGO DE NODOS VÁLIDOS (NO INVENTES NADA FUERA DE AQUÍ):**\n"
-        f"{json.dumps(candidate_details, indent=2)}\n\n"
-        f"**REGLAS DE ORO (CRÍTICO):**\n"
-        f"1. **PROHIBIDO INVENTAR TIPOS:** Usa EXCLUSIVAMENTE los valores del campo `nodeId_REAL` (ej: 'n8n-nodes-base.webhook'). NO uses nombres como 'webhook_trigger' o 'router'.\n"
-        f"2. **JSON PURO:** Devuelve SOLO el Array JSON. Sin texto, sin markdown.\n"
-        f"3. **RAMAS:** Usa la estructura `branches` para IF y Switch.\n\n"
-        f"Estructura de Salida:\n"
+    # CONFIGURACIÓN DETERMINISTA Y NATIVA
+    # Forzamos a Gemini a devolver JSON puro sin markdown ni texto extra
+    generation_config = {
+        "temperature": 0.1,
+        "top_p": 0.95,
+        "top_k": 64,
+        "max_output_tokens": 8192, # Suficiente espacio para workflows gigantes
+        "response_mime_type": "application/json", # ¡LA CLAVE!
+    }
+
+    prompt = (
+        f"Eres el Arquitecto de Nexus OS. Diseña un workflow de n8n para esta petición:\n"
+        f"\"{user_request}\"\n\n"
+        f"**NODOS DISPONIBLES:**\n{json.dumps(candidate_details, indent=2)}\n\n"
+        f"**REGLAS OBLIGATORIAS:**\n"
+        f"1. Usa SOLO los `nodeId` proporcionados. No inventes nombres.\n"
+        f"2. Para nodos IF/SWITCH, usa la estructura `branches` con claves claras (ej: 'true', 'false' o nombres de ruta).\n"
+        f"3. Devuelve UNICAMENTE una lista de objetos JSON.\n\n"
+        f"**SCHEMA DE RESPUESTA (Array):**\n"
         f"[\n"
         f"  {{\n"
         f"    \"nodeId\": \"n8n-nodes-base.webhook\",\n"
-        f"    \"purpose\": \"Recibir datos\",\n"
-        f"    \"parameters\": {{ ... }},\n"
+        f"    \"purpose\": \"Explicación breve\",\n"
+        f"    \"parameters\": {{ \"path\": \"...\", ... }},\n"
         f"    \"branches\": {{ ... }} \n"
         f"  }}\n"
         f"]"
     )
 
-    # Lógica de Reintento (Retry)
     try:
-        response = model.generate_content(base_prompt)
-        cleaned_text = clean_json_text(response.text)
-        plan = json.loads(cleaned_text)
+        # Llamada con configuración nativa
+        response = model.generate_content(
+            prompt, 
+            generation_config=generation_config
+        )
         
-        # Validación Rápida: ¿Ha inventado nodos?
-        for node in plan:
-            if "n8n-nodes-base" not in node.get("nodeId", ""):
-                raise ValueError(f"Nodo inválido detectado: {node.get('nodeId')}")
+        # Al usar response_mime_type, el texto ya es JSON válido
+        plan = json.loads(response.text)
         
+        # Validación rápida de seguridad
+        if not isinstance(plan, list):
+            # A veces devuelve {"nodes": [...]}, normalizamos
+            if isinstance(plan, dict) and "nodes" in plan:
+                return plan["nodes"]
+            elif isinstance(plan, dict):
+                return [plan] # Si devolvió un solo nodo
+                
+        logger.info(f"✅ Arquitecto generó plan con {len(plan)} pasos.")
         return plan
 
-    except Exception as e1:
-        logger.warning(f"⚠️ Arquitecto Intento 1 falló ({e1}). Reintentando con corrección...")
-        
-        try:
-            retry_prompt = (
-                f"Tu respuesta anterior falló o contenía nodos inventados. ERROR: {str(e1)}\n"
-                f"CORRIGE el JSON.\n"
-                f"IMPORTANTE: Usa SOLO IDs que empiecen por 'n8n-nodes-base.'.\n"
-                f"Lista permitida: {json.dumps(valid_ids_list)}"
-            )
-            time.sleep(1)
-            response_retry = model.generate_content(base_prompt + "\n\n" + retry_prompt)
-            cleaned_text_retry = clean_json_text(response_retry.text)
-            
-            return json.loads(cleaned_text_retry)
-            
-        except Exception as e2:
-            logger.error(f"❌ Error crítico en Arquitecto tras reintento: {e2}")
-            return None
+    except Exception as e:
+        logger.error(f"❌ Error en Arquitecto V10: {e}", exc_info=True)
+        # Fallback de emergencia: devolver lo que se pueda
+        return None
