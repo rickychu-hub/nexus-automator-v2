@@ -6,74 +6,101 @@ import google.generativeai as genai
 logger = logging.getLogger(__name__)
 
 def clean_response(text):
-    """Limpia bloques de código y marcadores markdown."""
     text = re.sub(r'```[a-zA-Z]*', '', text).replace('```', '')
     return text.strip()
 
 def agent_technical_writer(nodes, user_request, model):
     """
-    Genera una Guía de Configuración paso a paso pensada para principiantes.
+    Writer 4.0: Genera Micro-Notas Tácticas pegadas a cada nodo complejo.
+    Estrategia: Divide y vencerás.
     """
-    logger.info("📝 Writer: Generando instrucciones de configuración detalladas...")
+    logger.info("📝 Writer: Generando notas tácticas nodo a nodo...")
     
-    # Identificar nodos que requieren configuración manual (ignoramos los simples como Start)
-    complex_nodes = [
-        n for n in nodes 
-        if n.get("type") not in ["n8n-nodes-base.start", "n8n-nodes-base.stickyNote"]
+    # Lista de nodos que NO necesitan explicación (demasiado obvios o lógicos)
+    skip_types = [
+        "n8n-nodes-base.start", 
+        "n8n-nodes-base.stickyNote", 
+        "n8n-nodes-base.noOp"
     ]
     
-    if not complex_nodes:
+    # Nodos que SIEMPRE necesitan ayuda (Apps externas)
+    complex_nodes = [n for n in nodes if n.get("type") not in skip_types]
+    
+    new_notes = []
+
+    # Procesamos nodo a nodo (esto consume más tiempo de IA, pero el resultado vale oro)
+    # Para optimizar, podríamos hacerlo en una sola llamada "batch", pero nodo a nodo es más preciso.
+    
+    # Hacemos un prompt "Batch" inteligente para no llamar a la API 20 veces
+    # Le pasamos la lista de nodos y pedimos un array de textos.
+    
+    nodes_summary = ""
+    for i, n in enumerate(complex_nodes):
+        # Le damos a la IA el ID temporal y los parámetros actuales para que vea qué falta
+        params_snippet = str(n.get("parameters", {}))[:300] 
+        nodes_summary += f"ID: {n.get('id')} | TIPO: {n.get('type')} | NOMBRE: {n.get('name')} | CONFIG_ACTUAL: {params_snippet}\n---\n"
+
+    if not nodes_summary:
         return nodes
 
-    # Preparamos el resumen de lo que hace cada nodo para la IA
-    nodes_context = ""
-    for n in complex_nodes:
-        # Extraemos parámetros clave para que la IA vea qué falta
-        params = str(n.get("parameters", {}))[:200] 
-        nodes_context += f"- Nodo '{n.get('name')}' ({n.get('type')}): {params}\n"
-
     prompt = (
-        f"Actúa como un profesor experto en n8n enseñando a un alumno principiante.\n"
-        f"Tu tarea es escribir una GUÍA DE CONFIGURACIÓN para este workflow.\n\n"
-        f"**Objetivo del Workflow:** {user_request}\n"
-        f"**Nodos a configurar:**\n{nodes_context}\n\n"
-        f"**TU MISIÓN:**\n"
-        f"Genera el texto para una Nota Adhesiva (Sticky Note) que guíe al usuario paso a paso para terminar de configurar el flujo. "
-        f"Asume que el usuario NO sabe qué poner en los campos vacíos.\n\n"
-        f"**REGLAS DE FORMATO:**\n"
-        f"1. NO uses bloques de código (```). Usa texto limpio.\n"
-        f"2. Usa emojis para guiar la vista.\n"
-        f"3. ESTRUCTURA OBLIGATORIA:\n"
-        f"   - 🏁 **PASO 1: Credenciales**\n"
-        f"     (Lista qué cuentas debe conectar: Google, Slack, etc.)\n"
-        f"   - 🛠️ **PASO 2: Configuración por Nodo**\n"
-        f"     (Para cada nodo importante, di EXACTAMENTE qué campo rellenar. Ej: 'En Google Sheets, pon el ID de tu hoja en el campo Spreadsheet ID'.)\n"
-        f"   - 🧪 **PASO 3: Cómo probarlo**\n"
-        f"     (Explica cómo lanzar la primera prueba manual)\n"
+        f"Eres un Instructor Experto en n8n. Tu alumno no sabe nada de automatización.\n"
+        f"Analiza estos nodos y genera el texto para una 'Sticky Note' individual para cada uno.\n\n"
+        f"**LISTA DE NODOS:**\n{nodes_summary}\n\n"
+        f"**TU TAREA:**\n"
+        f"Para cada nodo, genera un bloque de texto que siga ESTRICTAMENTE este formato:\n"
+        f"NODE_ID: [El ID del nodo]\n"
+        f"CONTENT:\n"
+        f"🎯 **[Qué hace este nodo en 1 frase sencilla]**\n"
+        f"⚠️ **TAREAS:**\n"
+        f"- [Instrucción clara de qué credencial conectar]\n"
+        f"- [Instrucción clara de qué campo rellenar y DÓNDE encontrar el dato]\n"
+        f"⛔ **NO TOCAR:** La configuración avanzada.\n"
+        f"END_CONTENT\n\n"
+        f"**REGLAS:**\n"
+        f"- Si el nodo es un 'Webhook' o 'Set', sé muy breve.\n"
+        f"- Si es 'Google Sheets', 'Slack', 'Gmail', etc., explica dónde sacar los IDs.\n"
+        f"- Usa emojis. Sé directo."
     )
 
     try:
         response = model.generate_content(prompt)
-        content = clean_response(response.text)
+        full_text = clean_response(response.text)
+        
+        # Parseamos la respuesta para separar las notas
+        # Buscamos bloques que empiecen por NODE_ID: y terminen en END_CONTENT
+        pattern = r"NODE_ID:\s*(.*?)\s*CONTENT:\s*(.*?)\s*END_CONTENT"
+        matches = re.findall(pattern, full_text, re.DOTALL)
+        
+        # Mapa rápido para encontrar nodos por ID
+        node_map = {n['id']: n for n in nodes}
+
+        for node_id, content in matches:
+            target_node = node_map.get(node_id.strip())
+            
+            if target_node:
+                # Posición: Ponemos la nota ENCIMA del nodo (eje Y - 200)
+                # Ojo: Si el nodo no tiene posición aún (builder), usamos 0,0 y el Assembler lo arreglará
+                original_pos = target_node.get("position", [0, 0])
+                note_pos = [original_pos[0], original_pos[1] - 250] # 250px arriba
+
+                sticky = {
+                    "parameters": {
+                        "content": content.strip(),
+                        "height": 220,
+                        "width": 300,
+                        "color": 4 # Amarillo (Warning/Info)
+                    },
+                    "type": "n8n-nodes-base.stickyNote",
+                    "typeVersion": 1,
+                    "position": note_pos,
+                    "id": f"note_{node_id}",
+                    "name": f"Nota para {target_node.get('name')}"
+                }
+                new_notes.append(sticky)
+
     except Exception as e:
-        logger.error(f"Error en Writer: {e}")
-        content = "⚠️ Error generando guía. Revisa cada nodo manualmente."
+        logger.error(f"Error en Writer Batch: {e}")
 
-    # Configuración visual de la nota (Más ancha para leer bien las instrucciones)
-    guide_note = {
-        "parameters": {
-            "content": content,
-            "height": 600,
-            "width": 500,
-            "color": 3 # Verde (Éxito/Guía) o 4 (Amarillo)
-        },
-        "type": "n8n-nodes-base.stickyNote",
-        "typeVersion": 1,
-        "position": [-150, 100], # A la izquierda, bien visible
-        "id": "nexus_guide_note",
-        "name": "Guía de Configuración"
-    }
-
-    # Insertar al principio
-    nodes.insert(0, guide_note)
-    return nodes
+    # Añadimos todas las notas generadas a la lista principal
+    return nodes + new_notes
