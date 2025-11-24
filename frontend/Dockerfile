@@ -10,7 +10,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia el código de la aplicación
 COPY app.py .
-COPY animacion.json .
 
 # Expone el puerto que usa Streamlit
 EXPOSE 8501
