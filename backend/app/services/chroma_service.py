@@ -58,17 +58,19 @@ def init_chroma_client():
         if not settings.CHROMA_SERVER_HOST:
             raise ValueError("CHROMA_SERVER_HOST no definido.")
             
-      # --- BLOQUE DE CONEXIÓN SIMPLIFICADO ---
-        # ... (dentro del try) ...
-    
-    # --- BLOQUE DE CONEXIÓN SIMPLIFICADO (CORREGIDO) ---
-        logger.info("Intentando conexión DIRECTA a 'chromadb' puerto 8000...")
-    
-    # 1. Declaramos que queremos usar la variable GLOBAL
-        global _chroma_client 
-    
-    # 2. Asignamos la conexión a la variable CON GUION BAJO
-        _chroma_client = chromadb.HttpClient(host="chromadb", port=8000)
+    # 1. Recuperamos la variable (que vendrá de Render o del .env)
+        # En backend usa settings.CHROMA_SERVER_HOST
+        # En pipeline usa os.getenv("CHROMA_SERVER_HOST")
+        raw_host = settings.CHROMA_SERVER_HOST # (o la variable correspondiente)
+
+        # 2. Limpieza A PRUEBA DE BALAS (Quitamos http:// y puertos)
+        clean_host = raw_host.replace("http://", "").replace("https://", "").split(":")[0]
+        
+        logger.info(f"🔌 Conectando a: {clean_host}")
+
+        # 3. Conexión Dinámica (Ya no está "hardcoded")
+        global _chroma_client
+        _chroma_client = chromadb.HttpClient(host=clean_host, port=8000)
     # ---------------------------------------------------
     
         ef = GeminiEmbeddingFunction()
