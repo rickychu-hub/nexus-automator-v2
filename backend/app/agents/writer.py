@@ -69,7 +69,7 @@ def agent_technical_writer(nodes, user_request, model):
                     "typeVersion": 1,
                     "position": [0, 0], # Temporal
                     "id": f"note_{target_node['id']}", # ID vinculado clave
-                    "name": f"Nota: {target_node['name']}"
+                    "name": f"Nota: {target_node['name'].split('.')[-1].split('_')[0]}"
                 }
                 new_notes.append(sticky)
 

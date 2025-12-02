@@ -7,15 +7,12 @@ services:
     container_name: nexus-backend
     ports:
       - "8000:8000"
+    # El backend ya no necesita montar el volumen físico de chroma
+    # porque ahora hablará con el servidor chromadb por red HTTP.
     volumes:
-      # Datos de Chroma (Persistencia)
-      - chroma_data:/data/chroma_db_v2
-      # [OPCIONAL] Montar código para Hot-Reloading en desarrollo
-      # Si cambias algo en local, se actualiza sin reconstruir
       - ./backend/app:/app/app
     env_file:
       - ./backend/.env
-    # El comando de healthcheck sigue siendo válido porque la ruta /healthz no cambió
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
@@ -33,14 +30,11 @@ services:
       - INTERVIEW_URL=http://backend:8000/interview/
       - GENERATION_URL=http://backend:8000/create-workflow-streaming/
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
+        
     restart: unless-stopped
-
-    # --- ¡ESTE ES EL ARREGLO V4.4 QUE FALTA! ---
     volumes:
       - ./frontend/app.py:/app/app.py
-    # ---------------------------------------------
 
   # ✋ "Las Manos" (n8n)
   n8n:
@@ -58,15 +52,34 @@ services:
   data-pipeline:
     build: ./data_pipeline
     container_name: nexus-data-pipeline
-    volumes:
-      # CAMBIO: Apuntamos al mismo volumen 'chroma_data'
-      - chroma_data:/data/chroma_db_v2
+    # Ya no necesita el volumen físico, solo conexión de red
     env_file:
       - ./data_pipeline/.env
+    depends_on:
+    - chromadb  
+        #condition: service_healthy  # <--- OBLIGATORIO: Esperar al healthcheck
+    restart: on-failure             # <--- Si falla, vuelve a intentarlo
 
-# CAMBIO: Definimos nuestros volúmenes gestionados por Docker
+  # 💾 "La Memoria" (Nuevo Servidor ChromaDB)
+  chromadb:
+    image: chromadb/chroma:0.4.24
+    container_name: nexus-chroma
+    volumes:
+      - chroma_data:/chroma/chroma
+    ports:
+      - "8001:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+   # healthcheck:
+     # test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      #interval: 30s
+      #timeout: 10s
+      #retries: 3
+    restart: unless-stopped
+
+# Volúmenes gestionados
 volumes:
   n8n_data:
     driver: local
-  chroma_data: # <-- ¡Aquí está!
+  chroma_data:
     driver: local

@@ -9,6 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from chromadb.utils import embedding_functions
 import sys # Para evitar errores si se ejecuta fuera de un entorno compatible
 import glob
+from chromadb.config import Settings
 
 
 # --- CONFIGURACIÓN ---
@@ -92,8 +93,17 @@ def load_data_to_chroma():
 
         logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
 
-        # Conexión como cliente HTTP al servicio 'nexus-chroma-server'
-        chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=8000)
+     # --- BLOQUE DE CONEXIÓN SIMPLIFICADO ---
+        logger.info("Intentando conexión DIRECTA a 'chromadb' puerto 8000...")
+        
+        # Hardcodeamos el host. Olvida las variables de entorno por un segundo.
+        # Sabemos que el contenedor se llama "nexus-chroma" o tiene el alias "chromadb"
+        
+        chroma_client = chromadb.HttpClient(host="chromadb", port=8000)
+        
+        # ---------------------------------------
+        # ------------------------------------------------------
+
         embedding_fn = GeminiEmbeddingFunction()
 
         chroma_client.heartbeat() # Prueba de conexión

@@ -1,4 +1,5 @@
 # backend/app/main.py
+from app.services.database_service import init_supabase
 import logging
 import json
 from fastapi import FastAPI
@@ -34,6 +35,8 @@ async def startup_event():
         logger.info("✅ Google Generative AI configurado.")
     else:
         logger.error("❌ ERROR CRÍTICO: GOOGLE_API_KEY no encontrada.")
+        logger.info("🔌 Iniciando conexión a Memoria (Supabase)...")
+    init_supabase()
 
     # Inicializar conexión a Chroma (Lógica movida a servicio)
     init_chroma_client()

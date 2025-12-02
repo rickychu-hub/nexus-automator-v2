@@ -7,6 +7,7 @@ import time
 from chromadb.utils import embedding_functions
 import google.generativeai as genai
 from app.core.config import settings
+from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -50,18 +51,34 @@ def init_chroma_client():
     except Exception as e:
         logger.error(f"Error cargando JSON KB: {e}")
 
+# ... dentro de init_chroma_client ...
+
     # 2. Conectar a Chroma Server
     try:
         if not settings.CHROMA_SERVER_HOST:
             raise ValueError("CHROMA_SERVER_HOST no definido.")
             
-        logger.info(f"🔌 Conectando a Chroma en {settings.CHROMA_SERVER_HOST}...")
-        _chroma_client = chromadb.HttpClient(host=settings.CHROMA_SERVER_HOST, port=8000)
-        
+      # --- BLOQUE DE CONEXIÓN SIMPLIFICADO ---
+        # ... (dentro del try) ...
+    
+    # --- BLOQUE DE CONEXIÓN SIMPLIFICADO (CORREGIDO) ---
+        logger.info("Intentando conexión DIRECTA a 'chromadb' puerto 8000...")
+    
+    # 1. Declaramos que queremos usar la variable GLOBAL
+        global _chroma_client 
+    
+    # 2. Asignamos la conexión a la variable CON GUION BAJO
+        _chroma_client = chromadb.HttpClient(host="chromadb", port=8000)
+    # ---------------------------------------------------
+    
         ef = GeminiEmbeddingFunction()
+    
+    # Ahora sí funcionará esto, porque _chroma_client ya tiene valor
         _kb_collection = _chroma_client.get_collection(settings.ENCYCLOPEDIA_COLLECTION, embedding_function=ef)
         _exp_collection = _chroma_client.get_collection(settings.EXPERIENCE_COLLECTION, embedding_function=ef)
+    
         logger.info("✅ Conexión a Chroma establecida.")
+
     except Exception as e:
         logger.error(f"❌ Error conectando a Chroma: {e}")
 

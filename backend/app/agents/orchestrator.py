@@ -1,4 +1,3 @@
-# backend/app/agents/orchestrator.py
 import logging
 import json
 import asyncio
@@ -7,6 +6,9 @@ from app.core.config import settings
 
 # Importamos los agentes y servicios
 from app.services.chroma_service import get_kb_memory
+# --- IMPORTAMOS LA NUEVA FUNCIÓN DE GUARDADO ---
+from app.services.database_service import save_workflow_log
+# -----------------------------------------------
 from app.agents.investigator import agent_investigator
 from app.agents.architect import agent_architect
 from app.agents.builder import build_nodes_from_plan, final_assembler
@@ -31,7 +33,6 @@ async def stream_generation_pipeline(user_prompt: str):
 
         # 1. INVESTIGADOR
         yield "Paso 1: Investigando nodos y patrones... 🕵️\n"
-        # Nota: agent_investigator es síncrono, lo ejecutamos directo por ahora.
         investigation = agent_investigator(user_prompt, model, kb_memory)
         
         n_nodes = len(investigation.get("candidate_nodes", []))
@@ -63,13 +64,26 @@ async def stream_generation_pipeline(user_prompt: str):
         yield "Paso 5: Ensamblaje final... 📦\n"
         final_json_str = final_assembler(nodes_with_notes, connections, user_prompt)
         
-        # Respuesta final para el Frontend (Formato JSON esperado por Streamlit)
+        # Parseamos el JSON para poder guardarlo como objeto, no como string
+        final_json_obj = json.loads(final_json_str)
+
+        # --- AQUÍ OCURRE LA MAGIA: GUARDAMOS EN SUPABASE ---
+        yield "   -> Guardando en memoria persistente (Supabase)...\n"
+        try:
+            # Ejecutamos el guardado de forma asíncrona para no bloquear
+            # (Aunque la función es síncrona, en este contexto simple funciona bien así)
+            save_workflow_log(user_prompt, final_json_obj, "Workflow generado por Nexus")
+            logger.info("✅ Guardado en base de datos ejecutado.")
+        except Exception as e:
+            logger.error(f"⚠️ Error al guardar en DB: {e}")
+        # ---------------------------------------------------
+        
+        # Respuesta final para el Frontend
         final_output = {
-            "workflow_json": json.loads(final_json_str),
+            "workflow_json": final_json_obj,
             "executive_summary": "Workflow generado por Nexus OS v4.0 (Modular)."
         }
         
-        # Enviamos el JSON final en una sola línea para que el frontend lo parsee
         yield json.dumps(final_output)
         
         logger.info("✅ Pipeline completado con éxito.")
