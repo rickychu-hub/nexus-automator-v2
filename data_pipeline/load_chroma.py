@@ -92,6 +92,7 @@ def load_data_to_chroma():
             raise ValueError("¡ERROR CRÍTICO! CHROMA_SERVER_HOST no está configurada.")
 
         logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
+        clean_host = CHROMA_HOST.replace("http://", "").replace("https://", "").split(":")[0]
 
      # --- BLOQUE DE CONEXIÓN SIMPLIFICADO ---
         chroma_client = chromadb.HttpClient(host=clean_host, port=8000)
