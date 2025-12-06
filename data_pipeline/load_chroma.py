@@ -94,14 +94,8 @@ def load_data_to_chroma():
         logger.info(f"Conectando a ChromaDB Server en: {CHROMA_HOST}")
 
      # --- BLOQUE DE CONEXIÓN SIMPLIFICADO ---
-        logger.info("Intentando conexión DIRECTA a 'chromadb' puerto 8000...")
-        
-        # Hardcodeamos el host. Olvida las variables de entorno por un segundo.
-        # Sabemos que el contenedor se llama "nexus-chroma" o tiene el alias "chromadb"
-        
-        chroma_client = chromadb.HttpClient(host="chromadb", port=8000)
-        
-        # ---------------------------------------
+        chroma_client = chromadb.HttpClient(host=clean_host, port=8000)
+
         # ------------------------------------------------------
 
         embedding_fn = GeminiEmbeddingFunction()
@@ -114,12 +108,6 @@ def load_data_to_chroma():
 
         batch_size_add = 2000
 
-        # ... (el resto de la función sigue igual) ...
-
-        # ... (El resto de la función 'load_data_to_chroma' sigue igual) ...
-        
-        # ... (El resto de la función 'load_data_to_chroma' sigue igual) ...
-        # --- Cargar Enciclopedia --- (BLOQUE AÑADIDO Y ACTIVADO)
         if ENCYCLOPEDIA_COLLECTION not in existing:
             logger.info(f"Creando y poblando '{ENCYCLOPEDIA_COLLECTION}'...")
             kb_collection = chroma_client.create_collection(
@@ -260,3 +248,4 @@ def load_data_to_chroma():
 # --- Punto de Entrada del Script ---
 if __name__ == "__main__":
     load_data_to_chroma()
+    # Force update for Render
