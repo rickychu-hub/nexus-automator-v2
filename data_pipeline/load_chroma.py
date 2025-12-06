@@ -248,4 +248,4 @@ def load_data_to_chroma():
 # --- Punto de Entrada del Script ---
 if __name__ == "__main__":
     load_data_to_chroma()
-    # Force update for Render
+# FORZANDO ACTUALIZACION DEFINITIVA V3
