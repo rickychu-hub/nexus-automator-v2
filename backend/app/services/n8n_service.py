@@ -20,25 +20,34 @@ class N8nDeployer:
     def deploy_workflow(self, workflow_json: dict):
         """
         Despliega el workflow en n8n via API.
-        LIMPIA propiedades no válidas (como 'meta') antes de enviar.
+        LIMPIA propiedades no válidas y corrige estructuras de nodos.
         """
         if not N8N_BASE_URL or not N8N_API_KEY:
             raise Exception("Faltan credenciales N8N_BASE_URL o N8N_API_KEY")
 
-        # 1. SANITIZACIÓN DEL PAYLOAD
-        # Creamos una copia para no borrar 'meta' del objeto original que va a la DB
+        # 1. SANITIZACIÓN GLOBAL (Nivel Root)
         payload = workflow_json.copy()
-        
-        # Eliminamos claves que la API de n8n no soporta en el root
-        keys_to_remove = ['meta', 'id', 'deployment','active'] 
-        # 'id': Si envías un ID en un POST (creación), n8n falla. Él asigna el ID.
-        # 'meta': Causa el error "additional properties".
+        keys_to_remove = ['meta', 'id', 'deployment', 'active'] 
         
         for key in keys_to_remove:
             if key in payload:
                 del payload[key]
 
-        # 2. CREAR WORKFLOW (POST)
+        # 2. SANITIZACIÓN DE NODOS (Nivel Profundo)
+        # Recorremos los nodos para corregir el error de "credentials must be object"
+        if "nodes" in payload and isinstance(payload["nodes"], list):
+            for node in payload["nodes"]:
+                # CORRECCIÓN CRÍTICA:
+                # Si 'credentials' es una lista (alucinación de la IA), la borramos.
+                # n8n espera un objeto, y como no tenemos IDs reales, mejor enviarlo limpio.
+                if "credentials" in node:
+                    if isinstance(node["credentials"], list):
+                        logger.warning(f"🧹 Limpiando credenciales inválidas (lista) en nodo: {node.get('name')}")
+                        del node["credentials"]
+                    elif node["credentials"] is None:
+                        del node["credentials"]
+
+        # 3. CREAR WORKFLOW (POST)
         create_url = f"{N8N_BASE_URL}/api/v1/workflows"
         logger.info(f"🚀 Enviando workflow a n8n: {create_url}")
         
@@ -55,8 +64,7 @@ class N8nDeployer:
 
         logger.info(f"✅ Workflow creado. ID: {wf_id}")
 
-        # 3. DOUBLE-TAP PROTOCOL (Activar)
-        # Esperamos un momento para asegurar consistencia
+        # 4. DOUBLE-TAP PROTOCOL (Activar)
         time.sleep(1)
         
         activate_url = f"{N8N_BASE_URL}/api/v1/workflows/{wf_id}/activate"
@@ -67,21 +75,17 @@ class N8nDeployer:
         else:
             logger.warning(f"⚠️ No se pudo activar el workflow {wf_id}: {act_response.text}")
 
-        # 4. OBTENER URL DEL WEBHOOK (Introspección simple)
-        # Construimos la URL basada en el primer nodo webhook encontrado
+        # 5. OBTENER URL DEL WEBHOOK (Introspección simple)
         webhook_url = None
         nodes = wf_data.get("nodes", [])
         for node in nodes:
             if "webhook" in node.get("type", "").lower():
-                # Lógica simple para construir la URL pública
-                # n8n production webhooks suelen ser: /webhook/path
                 path = node.get("parameters", {}).get("path", "")
                 if path:
-                    # Ajusta esto si usas /webhook-test/ para pruebas
+                    # Construye la URL pública. Ajusta si usas túneles o dominios custom.
                     webhook_url = f"{N8N_BASE_URL}/webhook/{path}"
                     break
         
-        # URL del Dashboard para el botón
         dashboard_url = f"{N8N_BASE_URL}/workflow/{wf_id}"
 
         return {
