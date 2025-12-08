@@ -30,7 +30,7 @@ class N8nDeployer:
         payload = workflow_json.copy()
         
         # Eliminamos claves que la API de n8n no soporta en el root
-        keys_to_remove = ['meta', 'id', 'deployment'] 
+        keys_to_remove = ['meta', 'id', 'deployment','active'] 
         # 'id': Si envías un ID en un POST (creación), n8n falla. Él asigna el ID.
         # 'meta': Causa el error "additional properties".
         
