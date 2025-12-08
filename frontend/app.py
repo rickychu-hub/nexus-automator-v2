@@ -174,11 +174,15 @@ def login():
 
 def load_workflow_from_history(record):
     """Carga un workflow histórico usando Callback"""
-    # 1. Recuperar datos seguros
-    wf_json = record.get("workflow_json")
-    prompt = record.get("prompt", "Workflow Histórico")
     
-    # 2. Protección contra datos corruptos (Tus "Sin título" vacíos)
+    # 1. Recuperar datos seguros (CORREGIDO)
+    # Antes buscabas 'workflow_json', ahora sabemos que está en 'n8n_workflow_id'
+    wf_json = record.get("n8n_workflow_id") 
+    
+    # Antes buscabas 'prompt', ahora usamos 'description' o 'name' como fallback
+    prompt_text = record.get("description") or record.get("name") or "Workflow Histórico"
+    
+    # 2. Protección contra datos corruptos
     if not wf_json:
         st.toast("⚠️ Este registro histórico está vacío o corrupto.", icon="❌")
         return
@@ -190,19 +194,23 @@ def load_workflow_from_history(record):
     st.session_state.messages.append({
         "role": "assistant",
         "content": json.dumps({
-            "executive_summary": f"📂 **Workflow Restaurado desde el Historial**\n\n> {prompt}"
+            "executive_summary": f"📂 **Workflow Restaurado desde el Historial**\n\n> {prompt_text}"
         }),
         "workflow_json": wf_json,
-        "briefing": prompt
+        "briefing": prompt_text
     })
     
-    # 4. Forzar estado de espera (para que no intente generar nada nuevo)
+    # 4. Forzar estado de espera
     st.session_state.conversation_state = "waiting_for_prompt"
     
-    # Nota: Al usar callback (on_click), no hace falta st.rerun(), lo hace solo.
+    # OPCIONAL: Forzar una recarga suave para ver los cambios inmediatamente si es necesario
+    # st.rerun()
 def render_sidebar():
     with st.sidebar:
-        st.markdown(f"### 👤 `{st.session_state.username}`")
+        # Manejo seguro del username
+        username = st.session_state.get("username", "Usuario")
+        st.markdown(f"### 👤 `{username}`")
+        
         if st.button("Cerrar Sesión"):
             st.session_state.authenticated = False
             st.rerun()
@@ -212,39 +220,48 @@ def render_sidebar():
         
         if supabase:
             try:
-                # MEJORA: Filtramos para traer solo los que tienen JSON válido (neq null)
-                response = supabase.table("workflows").select("id, name, n8n_workflow_id").order("created_at", desc=True).execute()
-            except Exception as e:
-                st.sidebar.info("⏳ Historial no disponible por el momento.")
-                print(f"Error detallado DB: {e}") # Esto solo lo ves tú en la consola
+                # 1. CORRECCIÓN: Añadimos 'created_at' y 'description' al select
+                # Asumo que 'description' es lo que usabas como 'prompt'.
+                response = supabase.table("workflows").select("id, name, description, created_at, n8n_workflow_id").order("created_at", desc=True).limit(10).execute()
                 
-                for item in response.data:
-                    # Limpieza del título
-                    raw_prompt = item.get("prompt") or "Sin título"
-                    prompt_short = (raw_prompt[:28] + "...") if len(raw_prompt) > 28 else raw_prompt
-                    created_at = item.get("created_at", "")[5:10] # Solo Mes-Dia
-                    
-                    # --- EL CAMBIO CLAVE: USAR ON_CLICK ---
-                    # En lugar de "if st.button:", pasamos la función al parámetro on_click
-                    st.button(
-                        f"📅 {created_at} | {prompt_short}", 
-                        key=item['id'], 
-                        use_container_width=True,
-                        on_click=load_workflow_from_history,
-                        args=(item,) # Pasamos el item como argumento
-                    )
-                    
+                # 2. CORRECCIÓN: El bucle va AQUÍ (dentro del try, después del execute), no en el except
+                if response.data:
+                    for item in response.data:
+                        # Usamos 'description' o 'name' porque 'prompt' no existe en tu tabla
+                        raw_text = item.get("description") or item.get("name") or "Sin título"
+                        
+                        # Acortar texto para que quepa en el botón
+                        label_short = (raw_text[:28] + "...") if len(raw_text) > 28 else raw_text
+                        
+                        # Formatear fecha (Manejo seguro si es None)
+                        date_str = item.get("created_at", "")
+                        created_at_fmt = date_str[5:10] if date_str else "??"
+
+                        # Botón de carga
+                        st.button(
+                            f"📅 {created_at_fmt} | {label_short}", 
+                            key=item['id'], 
+                            use_container_width=True,
+                            on_click=load_workflow_from_history,
+                            args=(item,)
+                        )
+                else:
+                    st.caption("No hay historial reciente.")
+
             except Exception as e:
-                st.error(f"Error historial: {e}")
+                st.sidebar.error("Error cargando historial.")
+                print(f"DEBUG Error DB: {e}") # Para que lo veas en tu terminal
+                
         else:
             st.warning("DB no conectada")
 
         st.divider()
         if st.button("🗑️ Nuevo Chat (Limpiar)", use_container_width=True):
             st.session_state.messages = []
-            st.session_state.conversation_state = "waiting_for_prompt"
+            # Asegúrate de reiniciar también el estado del workflow actual
+            if 'current_workflow' in st.session_state:
+                del st.session_state['current_workflow']
             st.rerun()
-# --- 3. LÓGICA DE VISUALIZACIÓN (UI) ---
 def display_message(message):
     with st.chat_message(message["role"]):
         # A. Procesamiento de Texto / JSON
