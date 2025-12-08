@@ -1,114 +1,95 @@
-import os
 import requests
-import time
+import json
 import logging
-from typing import Dict, Any, Optional
+import os
+import time
+
+# Configuración básica
+N8N_BASE_URL = os.getenv("N8N_BASE_URL")
+N8N_API_KEY = os.getenv("N8N_API_KEY")
 
 logger = logging.getLogger(__name__)
 
 class N8nDeployer:
     def __init__(self):
-        # Limpiamos la URL base para evitar dobles barras al final
-        self.base_url = os.getenv("N8N_BASE_URL", "").rstrip("/")
-        self.api_key = os.getenv("N8N_API_KEY")
-        
-        # Headers estándar para todas las peticiones
         self.headers = {
-            "X-N8N-API-KEY": self.api_key,
+            "X-N8N-API-KEY": N8N_API_KEY,
             "Content-Type": "application/json"
         }
 
-    def _validate_config(self):
-        if not self.base_url or not self.api_key:
-            raise ValueError("❌ Faltan configuraciones críticas: N8N_BASE_URL o N8N_API_KEY no definidos.")
+    def deploy_workflow(self, workflow_json: dict):
+        """
+        Despliega el workflow en n8n via API.
+        LIMPIA propiedades no válidas (como 'meta') antes de enviar.
+        """
+        if not N8N_BASE_URL or not N8N_API_KEY:
+            raise Exception("Faltan credenciales N8N_BASE_URL o N8N_API_KEY")
 
-    def deploy_workflow(self, workflow_json: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Ejecuta el protocolo 'Double-Tap' para inyectar y activar el workflow.
-        Retorna un resumen con el ID y la URL del Webhook si existe.
-        """
-        self._validate_config()
+        # 1. SANITIZACIÓN DEL PAYLOAD
+        # Creamos una copia para no borrar 'meta' del objeto original que va a la DB
+        payload = workflow_json.copy()
         
-        # 1. PREPARACIÓN: Forzamos 'active: false' para evitar Race Conditions
-        workflow_json['active'] = False
-        # Aseguramos que no lleve ID preexistente para que n8n cree uno nuevo limpio
-        if 'id' in workflow_json:
-            del workflow_json['id']
+        # Eliminamos claves que la API de n8n no soporta en el root
+        keys_to_remove = ['meta', 'id', 'deployment'] 
+        # 'id': Si envías un ID en un POST (creación), n8n falla. Él asigna el ID.
+        # 'meta': Causa el error "additional properties".
+        
+        for key in keys_to_remove:
+            if key in payload:
+                del payload[key]
 
-        try:
-            # 2. INYECCIÓN (POST /workflows)
-            logger.info("🚀 Enviando workflow a n8n...")
-            create_url = f"{self.base_url}/api/v1/workflows"
-            response = requests.post(create_url, json=workflow_json, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            
-            result = response.json()
-            workflow_id = result.get('id')
-            workflow_name = result.get('name')
-            
-            if not workflow_id:
-                raise ValueError("n8n no devolvió un ID de workflow válido.")
+        # 2. CREAR WORKFLOW (POST)
+        create_url = f"{N8N_BASE_URL}/api/v1/workflows"
+        logger.info(f"🚀 Enviando workflow a n8n: {create_url}")
+        
+        response = requests.post(create_url, headers=self.headers, json=payload, timeout=10)
+        
+        if response.status_code != 200:
+            logger.error(f"🔥 Error comunicando con n8n API: {response.text}")
+            raise Exception(f"Fallo en despliegue n8n: {response.text}")
 
-            logger.info(f"✅ Workflow creado con ID: {workflow_id}")
+        # Datos del workflow creado
+        wf_data = response.json()
+        wf_id = wf_data.get("id")
+        wf_name = wf_data.get("name")
 
-            # 3. PAUSA TÁCTICA (Anti-Race Condition)
-            # Damos tiempo a la DB de n8n para indexar nodos y triggers
-            time.sleep(1.0) 
+        logger.info(f"✅ Workflow creado. ID: {wf_id}")
 
-            # 4. ACTIVACIÓN (POST /workflows/{id}/activate)
-            logger.info(f"🔌 Activando workflow {workflow_id}...")
-            activate_url = f"{self.base_url}/api/v1/workflows/{workflow_id}/activate"
-            act_response = requests.post(activate_url, headers=self.headers, timeout=5)
-            act_response.raise_for_status()
-            
-            logger.info("🟢 Workflow activado correctamente.")
+        # 3. DOUBLE-TAP PROTOCOL (Activar)
+        # Esperamos un momento para asegurar consistencia
+        time.sleep(1)
+        
+        activate_url = f"{N8N_BASE_URL}/api/v1/workflows/{wf_id}/activate"
+        act_response = requests.post(activate_url, headers=self.headers, timeout=10)
+        
+        if act_response.status_code == 200:
+            logger.info(f"✅ Workflow {wf_id} activado correctamente.")
+        else:
+            logger.warning(f"⚠️ No se pudo activar el workflow {wf_id}: {act_response.text}")
 
-            # 5. RECONSTRUCCIÓN DE URL (Webhook Discovery)
-            webhook_url = self._extract_webhook_url(workflow_json)
-
-            return {
-                "status": "deployed",
-                "id": workflow_id,
-                "name": workflow_name,
-                "webhook_url": webhook_url,
-                "dashboard_url": f"{self.base_url}/workflow/{workflow_id}"
-            }
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"🔥 Error comunicando con n8n API: {e}")
-            if e.response is not None:
-                logger.error(f"Respuesta n8n: {e.response.text}")
-            raise ConnectionError(f"Fallo en despliegue n8n: {str(e)}")
-
-    def _extract_webhook_url(self, workflow_json: Dict[str, Any]) -> Optional[str]:
-        """
-        Analiza el JSON para encontrar nodos Webhook y construir la URL pública.
-        Prioriza nodos que se llamen 'Webhook' o sean del tipo 'n8n-nodes-base.webhook'.
-        """
-        nodes = workflow_json.get('nodes', [])
-        webhook_node = None
-
-        # Buscamos el nodo webhook
+        # 4. OBTENER URL DEL WEBHOOK (Introspección simple)
+        # Construimos la URL basada en el primer nodo webhook encontrado
+        webhook_url = None
+        nodes = wf_data.get("nodes", [])
         for node in nodes:
-            if node.get('type') == 'n8n-nodes-base.webhook':
-                webhook_node = node
-                break
+            if "webhook" in node.get("type", "").lower():
+                # Lógica simple para construir la URL pública
+                # n8n production webhooks suelen ser: /webhook/path
+                path = node.get("parameters", {}).get("path", "")
+                if path:
+                    # Ajusta esto si usas /webhook-test/ para pruebas
+                    webhook_url = f"{N8N_BASE_URL}/webhook/{path}"
+                    break
         
-        if not webhook_node:
-            return None
+        # URL del Dashboard para el botón
+        dashboard_url = f"{N8N_BASE_URL}/workflow/{wf_id}"
 
-        # Extraemos el path. Si no tiene, n8n usa el ID, pero asumimos que el Builder pone path.
-        params = webhook_node.get('parameters', {})
-        path = params.get('path')
-        
-        # Si es un webhook POST o GET
-        method = params.get('httpMethod', 'GET')
-        
-        if path:
-            # Construcción estándar de URL de producción de n8n
-            return f"{self.base_url}/webhook/{path}"
-        
-        return f"{self.base_url}/webhook/test-webhook (Path no definido)"
+        return {
+            "status": "deployed",
+            "id": wf_id,
+            "name": wf_name,
+            "webhook_url": webhook_url,
+            "dashboard_url": dashboard_url
+        }
 
-# Instancia global para importar
 n8n_deployer = N8nDeployer()
