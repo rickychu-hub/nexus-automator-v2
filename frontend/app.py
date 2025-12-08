@@ -13,7 +13,7 @@ import pandas as pd
 from supabase import create_client, Client
 
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
-st.set_page_config(page_title="Nexus Automator 🤖", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="Nexus OS", page_icon="🧬", layout="wide")
 
 # Credenciales de Acceso (Simple para MVP)
 USERS_DB = {
@@ -200,7 +200,7 @@ def load_workflow_from_history(record):
     st.session_state.conversation_state = "waiting_for_prompt"
     
     # Nota: Al usar callback (on_click), no hace falta st.rerun(), lo hace solo.
-ddef render_sidebar():
+def render_sidebar():
     with st.sidebar:
         st.markdown(f"### 👤 `{st.session_state.username}`")
         if st.button("Cerrar Sesión"):
