@@ -6,9 +6,12 @@ from app.core.config import settings
 
 # Importamos los agentes y servicios
 from app.services.chroma_service import get_kb_memory
-# --- IMPORTAMOS LA NUEVA FUNCIÓN DE GUARDADO ---
 from app.services.database_service import save_workflow_log
-# -----------------------------------------------
+
+# --- NUEVO: IMPORTAMOS EL SERVICIO DE DESPLIEGUE ---
+from app.services.n8n_service import n8n_deployer
+# ---------------------------------------------------
+
 from app.agents.investigator import agent_investigator
 from app.agents.architect import agent_architect
 from app.agents.builder import build_nodes_from_plan, final_assembler
@@ -18,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 async def stream_generation_pipeline(user_prompt: str):
     """
-    Pipeline V4.0 (Async/Stream):
-    Investigador -> Arquitecto -> Builder -> Writer -> Assembler
+    Pipeline V5.0 (Headless):
+    Investigador -> Arquitecto -> Builder -> Writer -> Assembler -> [Deployer] -> DB
     """
     logger.info(f"⚡ Pipeline iniciado para: {user_prompt[:50]}...")
     
@@ -64,24 +67,64 @@ async def stream_generation_pipeline(user_prompt: str):
         yield "Paso 5: Ensamblaje final... 📦\n"
         final_json_str = final_assembler(nodes_with_notes, connections, user_prompt)
         
-        # Parseamos el JSON para poder guardarlo como objeto, no como string
+        # Parseamos el JSON para manipularlo
         final_json_obj = json.loads(final_json_str)
 
-        # --- AQUÍ OCURRE LA MAGIA: GUARDAMOS EN SUPABASE ---
-        yield "   -> Guardando en memoria persistente (Supabase)...\n"
+        # ==============================================================================
+        # PASO 6: INYECCIÓN AUTOMÁTICA (HEADLESS)
+        # ==============================================================================
+        yield "Paso 6: Inyectando en n8n... 🚀\n"
+        
+        deployment_data = None
+        webhook_msg = ""
+        
         try:
-            # Ejecutamos el guardado de forma asíncrona para no bloquear
-            # (Aunque la función es síncrona, en este contexto simple funciona bien así)
-            save_workflow_log(user_prompt, final_json_obj, "Workflow generado por Nexus")
+            # Llamada al nuevo servicio
+            deployment_result = n8n_deployer.deploy_workflow(final_json_obj)
+            
+            wf_id = deployment_result.get('id')
+            webhook_url = deployment_result.get('webhook_url')
+            
+            # Mensajes de éxito
+            msg = f"   -> ✅ Workflow desplegado y activado (ID: {wf_id}).\n"
+            if webhook_url:
+                msg += f"   -> 🔗 WEBHOOK PÚBLICO: {webhook_url}\n"
+                webhook_msg = f"\n\n🔗 **Webhook Activo:** `{webhook_url}`"
+            else:
+                msg += "   -> ℹ️ No se detectaron Webhooks públicos.\n"
+            
+            yield msg
+            
+            # Añadimos los datos del despliegue al JSON final
+            final_json_obj['deployment'] = deployment_result
+            deployment_data = deployment_result
+
+        except Exception as e:
+            # Si falla el despliegue, NO rompemos el pipeline. Solo avisamos.
+            logger.error(f"⚠️ Error en despliegue Headless: {e}")
+            yield f"   -> ⚠️ Aviso: No se pudo inyectar automáticamente (revisa variables N8N_). Entregando JSON manual.\n"
+        
+        # ==============================================================================
+
+        # 7. GUARDAR EN SUPABASE
+        yield "Paso 7: Guardando en memoria persistente...\n"
+        try:
+            # Añadimos metadatos del despliegue al log
+            meta_info = "Workflow generado por Nexus"
+            if deployment_data:
+                meta_info += f" [Auto-Deployed ID: {deployment_data.get('id')}]"
+
+            save_workflow_log(user_prompt, final_json_obj, meta_info)
             logger.info("✅ Guardado en base de datos ejecutado.")
         except Exception as e:
             logger.error(f"⚠️ Error al guardar en DB: {e}")
-        # ---------------------------------------------------
         
         # Respuesta final para el Frontend
+        summary_text = "Workflow generado por Nexus OS." + webhook_msg
+        
         final_output = {
             "workflow_json": final_json_obj,
-            "executive_summary": "Workflow generado por Nexus OS v4.0 (Modular)."
+            "executive_summary": summary_text
         }
         
         yield json.dumps(final_output)
