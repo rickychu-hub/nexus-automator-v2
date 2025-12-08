@@ -130,6 +130,9 @@ st.markdown("""
         background-color: #ff8f80;
         border-color: #ff8f80;
         color: white !important;
+    [data-testid="stSidebar"] {
+        min-width: 400px !important; /* Ajusta este valor a tu gusto (defecto es aprox 336px) */
+        max-width: 600px !important;    
     }
     
     /* Ajustes Streamlit */
@@ -172,39 +175,54 @@ def login():
             else:
                 st.error("❌ Credenciales incorrectas")
 
+
+
 def load_workflow_from_history(record):
-    """Carga un workflow histórico usando Callback"""
+    """
+    Carga un workflow histórico, parsea el JSON y usa el nombre real.
+    """
+    # 1. RECUPERAR DATOS CORRECTOS
+    # Usamos la columna 'name' (que vi en tu tabla) para el título
+    wf_name = record.get("name") or "Workflow Sin Título"
+    wf_desc = record.get("description") or "Sin descripción disponible."
     
-    # 1. Recuperar datos seguros (CORREGIDO)
-    # Antes buscabas 'workflow_json', ahora sabemos que está en 'n8n_workflow_id'
-    wf_json = record.get("n8n_workflow_id") 
+    # 2. PARSEO DE JSON (La solución al error rojo)
+    # El error ocurre porque 'n8n_workflow_id' viene como texto, no como objeto.
+    raw_data = record.get("n8n_workflow_id")
+    wf_json = {} 
     
-    # Antes buscabas 'prompt', ahora usamos 'description' o 'name' como fallback
-    prompt_text = record.get("description") or record.get("name") or "Workflow Histórico"
-    
-    # 2. Protección contra datos corruptos
-    if not wf_json:
-        st.toast("⚠️ Este registro histórico está vacío o corrupto.", icon="❌")
+    if raw_data:
+        if isinstance(raw_data, str):
+            try:
+                wf_json = json.loads(raw_data) # <--- AQUÍ convertimos Texto a Objeto
+            except json.JSONDecodeError:
+                st.toast("⚠️ Error: El JSON del workflow está corrupto.", icon="❌")
+                return
+        elif isinstance(raw_data, dict):
+            wf_json = raw_data
+    else:
+        st.toast("⚠️ Registro vacío.", icon="❌")
         return
 
-    # 3. Reconstruir el estado del chat
+    # 3. RECONSTRUIR EL CHAT
     st.session_state.messages = [] 
     
-    # Creamos un "falso" mensaje del asistente que contiene el workflow
+    # Creamos el mensaje simulado del asistente
     st.session_state.messages.append({
         "role": "assistant",
         "content": json.dumps({
-            "executive_summary": f"📂 **Workflow Restaurado desde el Historial**\n\n> {prompt_text}"
+            # AQUI usamos el nombre real en lugar del texto genérico
+            "executive_summary": f"📂 **{wf_name}**\n\n> {wf_desc}"
         }),
-        "workflow_json": wf_json,
-        "briefing": prompt_text
+        "workflow_json": wf_json, # Pasamos el objeto limpio
+        "briefing": wf_desc
     })
     
-    # 4. Forzar estado de espera
+    # 4. Configuración de estado
     st.session_state.conversation_state = "waiting_for_prompt"
     
-    # OPCIONAL: Forzar una recarga suave para ver los cambios inmediatamente si es necesario
-    # st.rerun()
+    # Forzar recarga para limpiar errores visuales previos
+    st.rerun()
 def render_sidebar():
     with st.sidebar:
         # Manejo seguro del username
