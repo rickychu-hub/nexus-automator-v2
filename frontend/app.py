@@ -247,6 +247,14 @@ with tab_assistant:
                     api_resp = json.loads(final_json)
                     wf_obj = api_resp.get("workflow_json")
                     summary = api_resp.get("executive_summary", "")
+
+                    with st.expander("🔍 PAYLOAD RECIBIDO DEL BACKEND (RAW)", expanded=True):
+                            st.json(wf_obj)
+                            if "deployment" not in wf_obj:
+                                st.error("❌ ALERTA: El objeto 'deployment' NO vino del backend.")
+                            else:
+                                st.success(f"✅ Deployment Data: {wf_obj['deployment']}")
+
                     status.update(label="✅ ¡Workflow Generado!", state="complete")
                     
                     st.session_state.messages.append({
