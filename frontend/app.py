@@ -1,3 +1,6 @@
+# nexus_frontend/app.py
+# VERSIÓN V6.0 - FINAL PROD (Auth + Historial + Mission Control UI)
+
 import streamlit as st
 import requests
 import json
@@ -12,22 +15,46 @@ from supabase import create_client, Client
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="Nexus Automator 🤖", page_icon="🤖", layout="wide")
 
-# Credenciales de Acceso (HARDCODED PARA MVP - LUEGO MOVER A .ENV)
+# Credenciales de Acceso (Simple para MVP)
 USERS_DB = {
-    "admin": "nexus2025",  # Usuario: Contraseña
+    "admin": "nexus2025", 
     "demo": "demo123"
 }
 
-# URLs y Keys
+# URLs del Backend y Servicios
 INTERVIEW_URL = os.getenv("INTERVIEW_URL", "http://localhost:8000/interview/")
 GENERATION_URL = os.getenv("GENERATION_URL", "http://localhost:8000/create-workflow-streaming/")
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "https://n8n-motor.onrender.com")
+
+# Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 logger = logging.getLogger(__name__)
 
-# Estilos CSS (Incluyendo Login y Sidebar)
+# --- INICIALIZAR SUPABASE ---
+@st.cache_resource
+def init_supabase():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    try:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        logger.error(f"Error conectando a Supabase: {e}")
+        return None
+
+supabase = init_supabase()
+
+# --- INICIALIZAR SESSION_STATE ---
+if "authenticated" not in st.session_state: st.session_state.authenticated = False
+if "username" not in st.session_state: st.session_state.username = ""
+if "messages" not in st.session_state: st.session_state.messages = []
+if "conversation_state" not in st.session_state: st.session_state.conversation_state = "waiting_for_prompt"
+if "interview_history" not in st.session_state: st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
+if "stored_answers" not in st.session_state: st.session_state.stored_answers = {}
+if "final_briefing" not in st.session_state: st.session_state.final_briefing = ""
+
+# --- ESTILOS CSS (Mission Control + Login) ---
 st.markdown("""
     <style>
     /* Tema General Dark */
@@ -41,61 +68,92 @@ st.markdown("""
         border: 1px solid #30363d;
         box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         text-align: center;
+        margin-bottom: 20px;
     }
     
     /* Sidebar History Items */
-    .history-item {
-        padding: 10px;
-        background: #21262d;
-        border-radius: 6px;
-        margin-bottom: 8px;
-        border: 1px solid #30363d;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    .history-item:hover { border-color: #00aaff; }
+    div[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
     
-    /* Mission Control Card (Tu estilo anterior) */
+    /* Chat Bubbles */
     div[data-testid="stChatMessage-assistant"] { background: #161b22; border: 1px solid #30363d; border-radius: 12px; }
     div[data-testid="stChatMessage-user"] { background: #1f6feb20; border: 1px solid #1f6feb; border-radius: 12px; }
     
-    .deploy-card { background-color: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-top: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-    .deploy-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-bottom: 15px; }
-    .status-badge { background-color: #238636; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
-    .id-badge { font-family: monospace; color: #8b949e; font-size: 0.9em; }
-    .n8n-btn { display: inline-flex; align-items: center; justify-content: center; background-color: #ff6d5a; color: white !important; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; width: 100%; border: 1px solid #ff6d5a; transition: all 0.2s; }
-    .n8n-btn:hover { background-color: #ff8f80; border-color: #ff8f80; color: white !important; }
+    /* Mission Control Card */
+    .deploy-card {
+        background-color: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .deploy-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #30363d;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+    }
+    .status-badge {
+        background-color: #238636;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8em;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .id-badge {
+        font-family: monospace;
+        color: #8b949e;
+        font-size: 0.9em;
+    }
+    
+    /* Botones Personalizados */
+    .n8n-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #ff6d5a;
+        color: white !important;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 600;
+        width: 100%;
+        border: 1px solid #ff6d5a;
+        transition: all 0.2s;
+    }
+    .n8n-btn:hover {
+        background-color: #ff8f80;
+        border-color: #ff8f80;
+        color: white !important;
+    }
+    
+    /* Ajustes Streamlit */
+    .stCode { font-family: 'Fira Code', monospace !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. GESTIÓN DE ESTADO Y SUPABASE ---
-@st.cache_resource
-def init_supabase():
-    if not SUPABASE_URL or not SUPABASE_KEY: return None
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-supabase = init_supabase()
-
-# Inicialización de Sesión
-if "authenticated" not in st.session_state: st.session_state.authenticated = False
-if "username" not in st.session_state: st.session_state.username = ""
-if "messages" not in st.session_state: st.session_state.messages = []
-if "conversation_state" not in st.session_state: st.session_state.conversation_state = "waiting_for_prompt"
-if "interview_history" not in st.session_state: st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
-if "stored_answers" not in st.session_state: st.session_state.stored_answers = {}
-if "final_briefing" not in st.session_state: st.session_state.final_briefing = ""
-
-# --- 3. FUNCIONES AUXILIARES ---
+# --- 2. FUNCIONES DE UTILIDAD ---
 def generar_nombre_corto(briefing_text: str) -> str:
-    # (Tu función existente de nombre corto)
     if not briefing_text: return "workflow"
-    text = briefing_text.lower()[:50]
-    return re.sub(r'[^a-z0-9]+', '_', text) or "workflow"
+    text = briefing_text.lower()
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
+    keywords = ["pedidos", "leads", "facturas", "cliente", "webhook", "slack", "google", "sheet"]
+    found = [kw for kw in keywords if kw in text]
+    if not found: return "workflow"
+    name = "_".join(found[:3])
+    name = re.sub(r'[^a-z0-9_]+', '', name)
+    return name or "workflow"
 
 def login():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown("""
         <div class="login-container">
             <h2>🔐 Nexus Automator v2</h2>
@@ -119,7 +177,8 @@ def load_workflow_from_history(record):
     wf_json = record.get("workflow_json", {})
     prompt = record.get("prompt", "Workflow Histórico")
     
-    st.session_state.messages = [] # Limpiar chat actual
+    st.session_state.messages = [] 
+    # Reconstruimos el mensaje del asistente
     st.session_state.messages.append({
         "role": "assistant",
         "content": json.dumps({"executive_summary": f"📂 **Workflow Restaurado:** {prompt}"}),
@@ -131,26 +190,26 @@ def load_workflow_from_history(record):
 
 def render_sidebar():
     with st.sidebar:
-        st.write(f"👤 **Usuario:** `{st.session_state.username}`")
+        st.markdown(f"### 👤 `{st.session_state.username}`")
         if st.button("Cerrar Sesión"):
             st.session_state.authenticated = False
             st.rerun()
         
         st.divider()
-        st.header("📂 Historial")
+        st.markdown("### 📂 Historial Reciente")
         
         if supabase:
-            # Obtener workflows recientes (Podríamos filtrar por usuario si la DB tuviera user_id)
             try:
+                # Obtenemos los últimos 10 workflows
                 response = supabase.table('workflows').select("*").order('created_at', desc=True).limit(10).execute()
                 
                 for item in response.data:
-                    # Parsear nombre o usar fecha
-                    prompt_snippet = item.get("prompt", "Sin título")[:30] + "..."
+                    prompt_full = item.get("prompt", "Sin título")
+                    prompt_short = (prompt_full[:25] + "...") if len(prompt_full) > 25 else prompt_full
                     created_at = item.get("created_at", "")[:10]
                     
-                    # Botón para cada item del historial
-                    if st.button(f"📅 {created_at}\n{prompt_snippet}", key=item['id'], use_container_width=True):
+                    # Botón para cada item
+                    if st.button(f"📅 {created_at}\n{prompt_short}", key=item['id'], use_container_width=True):
                         load_workflow_from_history(item)
             except Exception as e:
                 st.error("Error cargando historial")
@@ -163,59 +222,91 @@ def render_sidebar():
             st.session_state.conversation_state = "waiting_for_prompt"
             st.rerun()
 
-# --- 4. FUNCIÓN DISPLAY MESSAGE (Tu versión PRO) ---
+# --- 3. LÓGICA DE VISUALIZACIÓN (UI) ---
 def display_message(message):
-    # ... (PEGA AQUÍ TU FUNCIÓN DISPLAY_MESSAGE MEJORADA QUE TE DI EN EL PASO ANTERIOR) ...
-    # ... (La que tiene la "Mission Control Card") ...
-    # RECUERDA: Copia la función completa del paso anterior para mantener la UI bonita
     with st.chat_message(message["role"]):
+        # A. Procesamiento de Texto / JSON
         content = message["content"]
         workflow_data = message.get("workflow_json")
         
+        # Intentamos mostrar texto limpio
         if workflow_data:
             try:
                 parsed = json.loads(content)
-                st.markdown(parsed.get("executive_summary", "✅ Workflow generado."))
+                st.markdown(parsed.get("executive_summary", "✅ Workflow generado con éxito."))
             except:
                 st.markdown(content)
         else:
             try:
                 parsed = json.loads(content)
-                if isinstance(parsed, dict) and "executive_summary" not in parsed: st.json(parsed)
-                else: st.markdown(content)
+                if isinstance(parsed, dict) and "executive_summary" not in parsed: 
+                    st.json(parsed)
+                else: 
+                    st.markdown(content)
             except:
                 st.markdown(content)
 
+        # B. Tarjeta de Despliegue (Mission Control)
         if workflow_data:
             deployment = workflow_data.get("deployment")
-            json_str = json.dumps(workflow_data, indent=2)
-            unique_id = str(time.time())
             
+            # Preparar datos para botones
+            unique_id = str(time.time_ns())[-6:]
+            brief = message.get("briefing", "")
+            short_name = generar_nombre_corto(brief)
+            file_name = f"{short_name}_{unique_id}.json"
+            json_str = json.dumps(workflow_data, indent=2)
+
             if deployment and deployment.get("status") == "deployed":
-                # UI MISSION CONTROL
+                wf_id = deployment.get('id')
+                webhook_url = deployment.get("webhook_url")
+                dashboard_url = deployment.get("dashboard_url")
+                
+                # Renderizar Tarjeta
                 st.markdown(f"""
                 <div class="deploy-card">
                     <div class="deploy-header">
                         <span class="status-badge">● ACTIVO EN PRODUCCIÓN</span>
-                        <span class="id-badge">ID: {deployment.get('id')}</span>
+                        <span class="id-badge">ID: {wf_id}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if deployment.get("webhook_url"):
-                    st.caption("🔗 **Webhook:**")
-                    st.code(deployment.get("webhook_url"), language="text")
+                if webhook_url:
+                    st.caption("🔗 **Webhook Público (Trigger):**")
+                    st.code(webhook_url, language="text")
                 
-                col1, col2 = st.columns(2)
+                st.write("") 
+                col1, col2 = st.columns([1, 1])
+                
                 with col1:
-                    st.markdown(f'<a href="{deployment.get("dashboard_url")}" target="_blank" style="text-decoration:none;"><div class="n8n-btn">🌪️ Abrir en n8n</div></a>', unsafe_allow_html=True)
+                    if dashboard_url:
+                        st.markdown(f"""
+                        <a href="{dashboard_url}" target="_blank" style="text-decoration:none;">
+                            <div class="n8n-btn">🌪️ Abrir en n8n</div>
+                        </a>
+                        """, unsafe_allow_html=True)
+                
                 with col2:
-                    st.download_button("💾 Backup JSON", json_str, file_name=f"wk_{unique_id}.json", mime="application/json", use_container_width=True)
+                    st.download_button(
+                        label="💾 Descargar Backup (.json)",
+                        data=json_str,
+                        file_name=file_name,
+                        mime="application/json",
+                        use_container_width=True
+                    )
+            
             else:
-                 st.download_button("📥 Descargar JSON", json_str, file_name=f"wk_{unique_id}.json", mime="application/json", use_container_width=True)
+                # Fallback si no hay deployment automático
+                st.warning("⚠️ El workflow fue diseñado, pero la inyección automática no está disponible.")
+                st.download_button(
+                    label="📥 Descargar JSON para Importación Manual",
+                    data=json_str,
+                    file_name=file_name,
+                    mime="application/json",
+                    use_container_width=True
+                )
 
-
-# --- 5. GESTIÓN DE ENTRADA (Igual que antes) ---
 def handle_user_input(user_input):
     if isinstance(user_input, dict):
         answers_text = "\n".join(f"• {v}" for v in user_input.values())
@@ -230,48 +321,157 @@ def handle_user_input(user_input):
         st.session_state.conversation_state = "interviewing"
         st.rerun()
 
-# --- 6. MAIN APP FLOW ---
+# --- 4. APLICACIÓN PRINCIPAL ---
 def main_app():
-    # Renderizar Sidebar
+    # Renderizamos la Sidebar
     render_sidebar()
-    
-    # Cabecera Principal
-    st.title("🤖 Nexus Automator")
-    st.caption("Arquitectura Headless v2.0 | Engine: n8n + Gemini Pro")
-    
-    # Contenedor del Chat
-    chat_container = st.container()
-    with chat_container:
-        for msg in st.session_state.messages:
-            display_message(msg)
 
-    # Input Logic (Estados)
-    if st.session_state.conversation_state == "waiting_for_prompt":
-        if prompt := st.chat_input("¿Qué proceso automatizamos hoy?"):
-            handle_user_input(prompt)
+    # Cabecera
+    st.markdown("## 🤖 Nexus Automator")
+    st.markdown("Tu Co-Piloto de automatización con **IA + n8n**. Describe un proceso y generaremos un workflow completo.", unsafe_allow_html=True)
+    st.markdown("---")
 
-    elif st.session_state.conversation_state == "waiting_for_answers":
-        # Mostrar formulario de preguntas
-        with st.chat_message("assistant"):
-            st.write("🕵️ Necesito afinar detalles:")
-            with st.form("interview_form"):
-                answers = {}
-                for i, q in enumerate(st.session_state.interview_history["questions"]):
-                    answers[f"q_{i}"] = st.text_input(q)
-                if st.form_submit_button("Enviar"):
-                    handle_user_input(answers) # Simplificado para el ejemplo
+    # Pestañas
+    tab_assistant, tab_monitor = st.tabs(["🤖 Asistente", "📊 Monitorización"])
 
-    # ... (AQUÍ IRÍAN TUS BLOQUES DE LOGICA 'interviewing' Y 'generating' QUE YA TIENES) ...
-    # Para no hacer el código infinito, COPIA TUS BLOQUES if st.session_state.conversation_state == "interviewing": y "generating": AQUÍ
-    
-    # BLOQUE DE GENERACIÓN (Resumido para contexto, úsalo completo)
-    if st.session_state.conversation_state == "generating":
-        with st.status("⚙️ Trabajando en el núcleo...", expanded=True) as status:
-            # ... Tu lógica de requests.post al backend ...
-            # ... Cuando recibas el final_json ...
-            pass # (Mantén tu lógica original aquí)
+    # --- PESTAÑA ASISTENTE ---
+    with tab_assistant:
+        main_ui = st.empty()
+        with main_ui.container():
+            # Renderizar mensajes
+            for msg in st.session_state.messages:
+                display_message(msg)
 
-# --- 7. PUNTO DE ENTRADA ---
+            # Estado: Esperando Prompt
+            if st.session_state.conversation_state == "waiting_for_prompt":
+                st.info("💡 Describe un proceso (ej: *Webhook que recibe datos y los manda a Slack*).")
+                if prompt := st.chat_input("¿Qué automatizamos hoy?"):
+                    handle_user_input(prompt)
+
+            # Estado: Esperando Respuestas (Entrevista)
+            if st.session_state.conversation_state == "waiting_for_answers":
+                if st.session_state.interview_history["questions"]:
+                    with st.chat_message("assistant"):
+                        st.markdown("🤔 Necesito un poco más de información:")
+                    with st.form("answers_form"):
+                        answers = {}
+                        for i, q in enumerate(st.session_state.interview_history["questions"]):
+                            key = f"q_{i}"
+                            prev_val = st.session_state.stored_answers.get(key, "")
+                            answers[key] = st.text_input(f"💬 {q}", key=key, value=prev_val)
+                        if st.form_submit_button("Enviar respuestas"):
+                            for k, v in answers.items(): st.session_state.stored_answers[k] = v
+                            st.session_state.interview_history["answers"] = list(answers.values())
+                            st.session_state.conversation_state = "interviewing"
+                            st.rerun()
+                else:
+                    st.session_state.conversation_state = "interviewing"
+                    st.rerun()
+
+        # Lógica: Entrevistando
+        if st.session_state.conversation_state == "interviewing":
+            with st.spinner("🧠 El Co-Piloto está pensando..."):
+                try:
+                    resp = requests.post(INTERVIEW_URL, json=st.session_state.interview_history, timeout=180)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    if data.get("status") == "clarified":
+                        briefing = data.get("briefing")
+                        st.session_state.final_briefing = json.dumps(briefing, indent=2) if isinstance(briefing, dict) else str(briefing)
+                        st.session_state.conversation_state = "generating"
+                        st.rerun()
+                    elif data.get("status") == "needs_more_info":
+                        st.session_state.interview_history["questions"] = data.get("questions", [])
+                        st.session_state.conversation_state = "waiting_for_answers"
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                    st.session_state.conversation_state = "waiting_for_prompt"
+
+        # Lógica: Generando
+        if st.session_state.conversation_state == "generating":
+            main_ui.empty()
+            st.markdown("### 🚀 Generando tu Automatización")
+            st.markdown(st.session_state.final_briefing)
+            st.markdown("---")
+            
+            complete = False
+            with st.status("⚙️ El Co-Piloto está trabajando...", expanded=True) as status:
+                final_json = None
+                summary = ""
+                wf_obj = None
+                try:
+                    resp = requests.post(GENERATION_URL, json={"user_prompt": st.session_state.final_briefing}, timeout=600, stream=True)
+                    resp.raise_for_status()
+                    for line in resp.iter_lines():
+                        if line:
+                            decoded = line.decode("utf-8")
+                            if decoded.startswith("{") and decoded.endswith("}"):
+                                final_json = decoded
+                            elif "ERROR:" in decoded:
+                                status.update(label=f"❌ {decoded}", state="error")
+                                complete = True
+                                break
+                            else:
+                                status.write(decoded)
+                    
+                    if final_json:
+                        api_resp = json.loads(final_json)
+                        wf_obj = api_resp.get("workflow_json")
+                        summary = api_resp.get("executive_summary", "")
+
+                        # Debug opcional
+                        with st.expander("🔍 PAYLOAD RECIBIDO DEL BACKEND (RAW)", expanded=False):
+                                st.json(wf_obj)
+
+                        status.update(label="✅ ¡Workflow Generado!", state="complete")
+                        
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": f"✅ ¡Hecho!\n\n> {summary}",
+                            "workflow_json": wf_obj,
+                            "briefing": st.session_state.final_briefing
+                        })
+                        complete = True
+                except Exception as e:
+                    logger.error(f"Error stream: {e}")
+                    status.update(label="❌ Error de conexión", state="error")
+                    complete = True
+
+            if complete:
+                st.session_state.conversation_state = "waiting_for_prompt"
+                st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
+                st.session_state.stored_answers = {}
+                st.session_state.final_briefing = ""
+                time.sleep(1)
+                st.rerun()
+
+    # --- PESTAÑA MONITORIZACIÓN ---
+    with tab_monitor:
+        st.header("Estado del Sistema")
+        if not supabase:
+            st.warning("⚠️ Monitorización desactivada: Credenciales no encontradas.")
+        else:
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                if st.button("🔄 Actualizar Logs", use_container_width=True): st.rerun()
+            
+            try:
+                res = supabase.table('execution_logs').select("*").order('created_at', desc=True).limit(50).execute()
+                if res.data:
+                    df = pd.DataFrame(res.data)
+                    col1, col2 = st.columns(2)
+                    col1.metric("Errores", df[df['status'] == 'error'].shape[0])
+                    col2.metric("Logs", df.shape[0])
+                    
+                    def color_status(val): return f'color: {"#ff4b4b" if val == "error" else "#00cc99"}; font-weight: bold'
+                    st.dataframe(df.style.map(color_status, subset=['status']), use_container_width=True, hide_index=True)
+                else:
+                    st.info("Sin actividad reciente.")
+            except Exception as e:
+                st.error(f"Error DB: {e}")
+
+# --- 5. PUNTO DE ENTRADA (Flow Auth) ---
 if __name__ == "__main__":
     if not st.session_state.authenticated:
         login()
