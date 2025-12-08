@@ -137,8 +137,8 @@ st.markdown("""
     }
     /* Forzar el ancho de la barra lateral */
         section[data-testid="stSidebar"] {
-            min-width: 400px !important;
-            width: 400px !important;
+            min-width: 450px !important;
+            width: 600px !important;
         }
         /* Ajustar el contenido interno para que no se corte */
         section[data-testid="stSidebar"] .block-container {
@@ -256,7 +256,7 @@ def render_sidebar():
                 if response.data:
                     for item in response.data:
                         # Usamos 'description' o 'name' porque 'prompt' no existe en tu tabla
-                        raw_text = item.get("name") or "Sin título"
+                        raw_text = item.get("name") or item.get("description") or "Sin título"
                         
                         # Acortar texto para que quepa en el botón
                         label_short = (raw_text[:28] + "...") if len(raw_text) > 28 else raw_text
