@@ -17,7 +17,7 @@ st.set_page_config(page_title="Nexus Automator 🤖", page_icon="🤖", layout="
 
 # Credenciales de Acceso (Simple para MVP)
 USERS_DB = {
-    "admin": "nexus2025", 
+    "ricardochunas@gmail.com": "369852147", 
     "demo": "demo123"
 }
 
@@ -156,8 +156,8 @@ def login():
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown("""
         <div class="login-container">
-            <h2>🔐 Nexus Automator v2</h2>
-            <p style="color:#8b949e;">Acceso restringido a personal autorizado</p>
+            <h2>🔐 Nexus </h2>
+            <p style="color:#8b949e;">Acceso restringido</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -173,22 +173,34 @@ def login():
                 st.error("❌ Credenciales incorrectas")
 
 def load_workflow_from_history(record):
-    """Carga un workflow histórico en el chat"""
-    wf_json = record.get("workflow_json", {})
+    """Carga un workflow histórico usando Callback"""
+    # 1. Recuperar datos seguros
+    wf_json = record.get("workflow_json")
     prompt = record.get("prompt", "Workflow Histórico")
     
+    # 2. Protección contra datos corruptos (Tus "Sin título" vacíos)
+    if not wf_json:
+        st.toast("⚠️ Este registro histórico está vacío o corrupto.", icon="❌")
+        return
+
+    # 3. Reconstruir el estado del chat
     st.session_state.messages = [] 
-    # Reconstruimos el mensaje del asistente
+    
+    # Creamos un "falso" mensaje del asistente que contiene el workflow
     st.session_state.messages.append({
         "role": "assistant",
-        "content": json.dumps({"executive_summary": f"📂 **Workflow Restaurado:** {prompt}"}),
+        "content": json.dumps({
+            "executive_summary": f"📂 **Workflow Restaurado desde el Historial**\n\n> {prompt}"
+        }),
         "workflow_json": wf_json,
         "briefing": prompt
     })
+    
+    # 4. Forzar estado de espera (para que no intente generar nada nuevo)
     st.session_state.conversation_state = "waiting_for_prompt"
-    st.rerun()
-
-def render_sidebar():
+    
+    # Nota: Al usar callback (on_click), no hace falta st.rerun(), lo hace solo.
+ddef render_sidebar():
     with st.sidebar:
         st.markdown(f"### 👤 `{st.session_state.username}`")
         if st.button("Cerrar Sesión"):
@@ -200,19 +212,32 @@ def render_sidebar():
         
         if supabase:
             try:
-                # Obtenemos los últimos 10 workflows
-                response = supabase.table('workflows').select("*").order('created_at', desc=True).limit(10).execute()
+                # MEJORA: Filtramos para traer solo los que tienen JSON válido (neq null)
+                response = supabase.table('workflows')\
+                    .select("*")\
+                    .neq('workflow_json', 'null')\
+                    .order('created_at', desc=True)\
+                    .limit(15)\
+                    .execute()
                 
                 for item in response.data:
-                    prompt_full = item.get("prompt", "Sin título")
-                    prompt_short = (prompt_full[:25] + "...") if len(prompt_full) > 25 else prompt_full
-                    created_at = item.get("created_at", "")[:10]
+                    # Limpieza del título
+                    raw_prompt = item.get("prompt") or "Sin título"
+                    prompt_short = (raw_prompt[:28] + "...") if len(raw_prompt) > 28 else raw_prompt
+                    created_at = item.get("created_at", "")[5:10] # Solo Mes-Dia
                     
-                    # Botón para cada item
-                    if st.button(f"📅 {created_at}\n{prompt_short}", key=item['id'], use_container_width=True):
-                        load_workflow_from_history(item)
+                    # --- EL CAMBIO CLAVE: USAR ON_CLICK ---
+                    # En lugar de "if st.button:", pasamos la función al parámetro on_click
+                    st.button(
+                        f"📅 {created_at} | {prompt_short}", 
+                        key=item['id'], 
+                        use_container_width=True,
+                        on_click=load_workflow_from_history,
+                        args=(item,) # Pasamos el item como argumento
+                    )
+                    
             except Exception as e:
-                st.error("Error cargando historial")
+                st.error(f"Error historial: {e}")
         else:
             st.warning("DB no conectada")
 
@@ -221,7 +246,6 @@ def render_sidebar():
             st.session_state.messages = []
             st.session_state.conversation_state = "waiting_for_prompt"
             st.rerun()
-
 # --- 3. LÓGICA DE VISUALIZACIÓN (UI) ---
 def display_message(message):
     with st.chat_message(message["role"]):
