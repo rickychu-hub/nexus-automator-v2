@@ -57,6 +57,7 @@ if "final_briefing" not in st.session_state: st.session_state.final_briefing = "
 # --- ESTILOS CSS (Mission Control + Login) ---
 st.markdown("""
     <style>
+    
     /* Tema General Dark */
     .stApp { background: linear-gradient(180deg, #0e1117 0%, #161b22 100%); color: #c9d1d9; }
     
@@ -134,6 +135,16 @@ st.markdown("""
         min-width: 400px !important; /* Ajusta este valor a tu gusto (defecto es aprox 336px) */
         max-width: 600px !important;    
     }
+    /* Forzar el ancho de la barra lateral */
+        section[data-testid="stSidebar"] {
+            min-width: 400px !important;
+            width: 400px !important;
+        }
+        /* Ajustar el contenido interno para que no se corte */
+        section[data-testid="stSidebar"] .block-container {
+            padding-left: 2rem;
+            padding-right: 2rem;
+        }
     
     /* Ajustes Streamlit */
     .stCode { font-family: 'Fira Code', monospace !important; }
@@ -221,8 +232,7 @@ def load_workflow_from_history(record):
     # 4. Configuración de estado
     st.session_state.conversation_state = "waiting_for_prompt"
     
-    # Forzar recarga para limpiar errores visuales previos
-    st.rerun()
+    
 def render_sidebar():
     with st.sidebar:
         # Manejo seguro del username
@@ -246,7 +256,7 @@ def render_sidebar():
                 if response.data:
                     for item in response.data:
                         # Usamos 'description' o 'name' porque 'prompt' no existe en tu tabla
-                        raw_text = item.get("description") or item.get("name") or "Sin título"
+                        raw_text = item.get("name") or "Sin título"
                         
                         # Acortar texto para que quepa en el botón
                         label_short = (raw_text[:28] + "...") if len(raw_text) > 28 else raw_text
