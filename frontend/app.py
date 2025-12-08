@@ -13,7 +13,7 @@ import pandas as pd
 from supabase import create_client, Client
 
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
-st.set_page_config(page_title="Nexus OS", page_icon="🧬", layout="wide")
+st.set_page_config(page_title="Nexus OS", page_icon="⚡", layout="wide")
 
 # Credenciales de Acceso (Simple para MVP)
 USERS_DB = {
@@ -213,12 +213,10 @@ def render_sidebar():
         if supabase:
             try:
                 # MEJORA: Filtramos para traer solo los que tienen JSON válido (neq null)
-                response = supabase.table('workflows')\
-                    .select("*")\
-                    .neq('workflow_json', 'null')\
-                    .order('created_at', desc=True)\
-                    .limit(15)\
-                    .execute()
+                response = supabase.table("workflows").select("id, name, n8n_workflow_id").order("created_at", desc=True).execute()
+            except Exception as e:
+                st.sidebar.info("⏳ Historial no disponible por el momento.")
+                print(f"Error detallado DB: {e}") # Esto solo lo ves tú en la consola
                 
                 for item in response.data:
                     # Limpieza del título
