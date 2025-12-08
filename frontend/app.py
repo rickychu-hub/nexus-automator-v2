@@ -57,88 +57,164 @@ if "stored_answers" not in st.session_state: st.session_state.stored_answers = {
 if "final_briefing" not in st.session_state: st.session_state.final_briefing = ""
 
 # --- ESTILO VISUAL ---
+# --- ESTILO VISUAL PRO (CSS) ---
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(180deg, #0a0f13 0%, #111a2f 40%, #0d1317 100%); color: #e4e6eb !important; }
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    div[data-testid="stChatMessage-assistant"] { background: rgba(255, 255, 255, 0.04); border-radius: 10px; padding: 12px; border-left: 4px solid #00aaff; }
-    div[data-testid="stChatMessage-user"] { background: rgba(0, 136, 255, 0.18); border-radius: 10px; padding: 12px; border-right: 4px solid #00aaff; }
-    button { background-color: #0077ff !important; color: white !important; border-radius: 8px; font-weight: 600; }
-    .resumen-box { background: rgba(0, 170, 255, 0.08); border-left: 3px solid #00aaff; padding: 12px 18px; border-radius: 8px; margin-bottom: 1rem; color: #cce6ff; }
-    .success-box { background: rgba(0, 255, 128, 0.1); border: 1px solid #00ff80; padding: 15px; border-radius: 8px; margin-top: 10px; }
+    /* Tema General */
+    .stApp { background: linear-gradient(180deg, #0e1117 0%, #161b22 100%); color: #c9d1d9; }
+    
+    /* Chat Bubbles */
+    div[data-testid="stChatMessage-assistant"] { background: #161b22; border: 1px solid #30363d; border-radius: 12px; }
+    div[data-testid="stChatMessage-user"] { background: #1f6feb20; border: 1px solid #1f6feb; border-radius: 12px; }
+    
+    /* Card de Despliegue (Mission Control) */
+    .deploy-card {
+        background-color: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .deploy-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #30363d;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+    }
+    .status-badge {
+        background-color: #238636;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8em;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .id-badge {
+        font-family: monospace;
+        color: #8b949e;
+        font-size: 0.9em;
+    }
+    
+    /* Botones Personalizados */
+    .n8n-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #ff6d5a; /* Color corporativo n8n */
+        color: white !important;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 600;
+        width: 100%;
+        border: 1px solid #ff6d5a;
+        transition: all 0.2s;
+    }
+    .n8n-btn:hover {
+        background-color: #ff8f80;
+        border-color: #ff8f80;
+        color: white !important;
+    }
+    
+    /* Ajustes Streamlit */
+    .stCode { font-family: 'Fira Code', monospace !important; }
     </style>
 """, unsafe_allow_html=True)
 
 
-## --- FUNCIÓN PARA MOSTRAR MENSAJES (LÓGICA HEADLESS) ---
 def display_message(message):
     with st.chat_message(message["role"]):
-        try:
-            parsed = json.loads(message["content"])
-            st.json(parsed)
-        except:
-            st.markdown(message["content"])
-
-        # Si hay workflow generado, decidimos qué mostrar
+        # 1. Contenido de texto (Parsing inteligente)
+        content = message["content"]
         workflow_data = message.get("workflow_json")
+        
+        # Si hay workflow, mostramos el resumen ejecutivo limpio, si no, el texto normal
         if workflow_data:
-            
-            # A. VERIFICAR DESPLIEGUE AUTOMÁTICO (HEADLESS)
+            try:
+                parsed = json.loads(content)
+                st.markdown(parsed.get("executive_summary", "✅ Workflow generado con éxito."))
+            except:
+                st.markdown(content)
+        else:
+            # Mensajes normales del chat
+            try:
+                parsed = json.loads(content)
+                if "executive_summary" not in parsed: # Evitar doble print
+                    st.json(parsed)
+            except:
+                st.markdown(content)
+
+        # 2. TARJETA DE DESPLIEGUE (Solo si hay workflow)
+        if workflow_data:
             deployment = workflow_data.get("deployment")
             
+            # Preparar datos
+            unique_id = str(time.time_ns())[-6:]
+            brief = message.get("briefing", "")
+            short_name = generar_nombre_corto(brief)
+            file_name = f"{short_name}_{unique_id}.json"
+            json_str = json.dumps(workflow_data, indent=2)
+
             if deployment and deployment.get("status") == "deployed":
-                wf_id = deployment.get("id")
-                dashboard_url = deployment.get("dashboard_url")
+                wf_id = deployment.get('id')
                 webhook_url = deployment.get("webhook_url")
+                dashboard_url = deployment.get("dashboard_url")
                 
+                # --- UI: MISSION CONTROL CARD ---
                 st.markdown(f"""
-                <div class="success-box">
-                    <h4>🚀 ¡Workflow Inyectado en n8n!</h4>
-                    <p>El sistema ha creado y activado el workflow automáticamente.</p>
+                <div class="deploy-card">
+                    <div class="deploy-header">
+                        <span class="status-badge">● ACTIVO EN PRODUCCIÓN</span>
+                        <span class="id-badge">ID: {wf_id}</span>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
+                # Sección Webhook (Destacada)
                 if webhook_url:
-                    st.markdown("**🔗 Tu Webhook Público:**")
+                    st.caption("🔗 **Webhook Público (Trigger):**")
                     st.code(webhook_url, language="text")
-                    st.caption("Copia esta URL y úsala en tu Trigger externo.")
                 
-                if dashboard_url:
-                    st.markdown(
-                        f"""
-                        <a href="{dashboard_url}" target="_blank">
-                            <button style="width:100%; margin-top:10px; padding: 10px; cursor: pointer;">
-                                🛠️ Ver Workflow en Vivo (ID: {wf_id})
-                            </button>
-                        </a>
-                        """,
-                        unsafe_allow_html=True
-                    )
-            
-            else:
-                # B. FALLBACK MANUAL (Descarga clásica)
-                unique_id = str(time.time_ns())[-6:]
-                brief = message.get("briefing", "")
-                short_name = generar_nombre_corto(brief)
-                file_name = f"{short_name}_{unique_id}.json"
-
-                col1, col2 = st.columns([2, 1])
+                # Sección Botones de Acción
+                st.write("") # Espaciador
+                col1, col2 = st.columns([1, 1])
+                
                 with col1:
+                    # Botón n8n (Estilo custom HTML para destacar)
+                    if dashboard_url:
+                        st.markdown(f"""
+                        <a href="{dashboard_url}" target="_blank" style="text-decoration:none;">
+                            <div class="n8n-btn">
+                                🌪️ Abrir en n8n
+                            </div>
+                        </a>
+                        """, unsafe_allow_html=True)
+                
+                with col2:
+                    # Botón Descarga (Nativo de Streamlit para funcionalidad garantizada)
                     st.download_button(
-                        key=f"dl_{unique_id}",
-                        label="📥 Descargar JSON",
-                        data=json.dumps(workflow_data, indent=2),
+                        label="💾 Descargar Backup (.json)",
+                        data=json_str,
                         file_name=file_name,
                         mime="application/json",
-                        use_container_width=True,
-                    )
-                with col2:
-                    n8n_url = f"{N8N_BASE_URL}/workflow/new"
-                    st.markdown(
-                        f"""<a href="{n8n_url}" target="_blank"><button style="width:100%;">🧩 Abrir n8n</button></a>""",
-                        unsafe_allow_html=True,
+                        use_container_width=True
                     )
 
+            # CASO: FALLO DE INYECCIÓN (Fallback elegante)
+            else:
+                st.warning("⚠️ El workflow fue diseñado, pero la inyección automática no está disponible.")
+                st.download_button(
+                    label="📥 Descargar JSON para Importación Manual",
+                    data=json_str,
+                    file_name=file_name,
+                    mime="application/json",
+                    use_container_width=True
+                )
 
 # --- GESTIÓN DE ENTRADA ---
 def handle_user_input(user_input):
