@@ -1,14 +1,14 @@
-# backend/app/agents/builder.py
 import logging
 import json
 import copy
 import time
+import re  # <--- IMPORTANTE: Necesario para el Humanizador
 
 logger = logging.getLogger(__name__)
 
-# --- 1. BUILDER (Unchanged) ---
+# --- 1. BUILDER (Updated v7.1) ---
 def build_nodes_from_plan(logical_plan, knowledge_base_memory):
-    logger.info("🏗️ Builder: Construyendo estructura...")
+    logger.info("🏗️ Builder v7.1: Construyendo estructura sanitizada...")
     if not isinstance(logical_plan, list):
         return [], {}
 
@@ -24,36 +24,75 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
             node_id = step.get('nodeId')
             if not node_id: continue
 
+            # Obtenemos la plantilla base
             node_template = copy.deepcopy(knowledge_base_memory.get(node_id.lower()))
             if not node_template:
-                node_template = {"name": step.get('purpose', 'Node'), "type": node_id, "typeVersion": 1, "position": [0, 0]}
+                # Fallback si no está en memoria
+                node_template = {
+                    "name": step.get('purpose', 'Node'), 
+                    "type": node_id, 
+                    "typeVersion": 1, 
+                    "position": [0, 0]
+                }
 
-            base_name = node_template.get('name', node_id.split('.')[-1])
+            # --- [MEJORA CRÍTICA] SANITIZACIÓN DE NOMBRES ---
+            # 1. Extraer la parte final del ID técnico (ej: 'gmailTrigger')
+            raw_suffix = node_id.split('.')[-1]
+            
+            # 2. Humanizar: 'gmailTrigger' -> 'Gmail Trigger' (Regex CamelCase)
+            # Inserta espacio antes de mayúsculas y capitaliza la primera letra
+            human_name = re.sub(r'(?<!^)(?=[A-Z])', ' ', raw_suffix).title()
+            
+            # 3. Limpiar caracteres feos que pueda haber traído la IA
+            human_name = human_name.replace("_", " ").strip()
+            
+            base_name = human_name
+
+            # 4. Contador Inteligente (Estilo n8n nativo)
+            # Si es el primero, NO añade número. Si es el segundo, añade " 2" (con espacio)
             count = node_counts.get(base_name, 0) + 1
             node_counts[base_name] = count
-            current_node_name = f"{base_name}_{count}"
+            
+            if count == 1:
+                current_node_name = base_name
+            else:
+                current_node_name = f"{base_name} {count}"
+            
+            # --- FIN MEJORA ---
 
+            # Generamos ID único interno (no visible en UI)
             node_template['id'] = f"node_{len(nodes)}_{int(time.time())}" 
             node_template['name'] = current_node_name
             node_template['purpose'] = step.get('purpose', '')
-            node_template['parameters'] = step.get('parameters', {})
+            
+            # Mezclar parámetros: Prioridad a lo que dice el plan, fallback a la plantilla
+            params = node_template.get('parameters', {})
+            params.update(step.get('parameters', {}))
+            node_template['parameters'] = params
             
             nodes.append(node_template)
 
+            # Lógica de conexión (Cableado)
             if last_node_in_chain:
                 target_index = forced_index if (forced_index is not None and i == 0) else 0
                 connections.setdefault(last_node_in_chain, {"main": []})
                 main_outputs = connections[last_node_in_chain]["main"]
+                
+                # Asegurar que existan suficientes salidas
                 while len(main_outputs) <= target_index:
                     main_outputs.append([])
+                
                 main_outputs[target_index].append({"node": current_node_name, "type": "main", "index": 0})
             
             last_node_in_chain = current_node_name
 
+            # Procesar Ramas (Recursividad)
             if 'branches' in step and isinstance(step['branches'], dict):
                 branch_items = list(step['branches'].items())
+                # Ordenar 'true' primero para consistencia visual en IFs
                 if "true" in step['branches']:
                     branch_items.sort(key=lambda x: 0 if x[0] == "true" else 1)
+                
                 for idx, (branch_name, sub_plan) in enumerate(branch_items):
                     if isinstance(sub_plan, list):
                         process_plan_recursive(sub_plan, parent_node_name=current_node_name, forced_index=idx)
@@ -110,10 +149,14 @@ def final_assembler(nodes, connections, user_request):
     for conns in connections.values():
         for branch in conns.get("main", []):
             for item in branch: targets.add(item["node"])
+    
+    # Encontrar nodos iniciales (que no son destino de nadie)
     start_nodes = [n["name"] for n in nodes if n["name"] not in targets and "stickyNote" not in n["type"]]
+    
     if start_nodes:
         position_recursive(start_nodes[0], 200, 800, 0)
     
+    # Posicionar notas adhesivas
     for note in nodes:
         if note.get("type") == "n8n-nodes-base.stickyNote":
             note_id = note.get("id", "")
@@ -141,7 +184,7 @@ def final_assembler(nodes, connections, user_request):
         "connections": connections,
         "active": False,
         "settings": {},
-        "meta": {"generated_by": "Nexus OS v7.0 (Enforced Rules)"}
+        "meta": {"generated_by": "Nexus OS v7.1 (Sanitized)"}
     }
     
     return json.dumps(validar_y_reparar_deep(workflow_dict), indent=2)
@@ -168,25 +211,21 @@ def validar_y_reparar_deep(w: dict) -> dict:
             main_outputs = conns.get('main', [])
             required_outputs = len(main_outputs)
 
-            # 1. FORZAR MODO 'rules' (Evita el modo 'expression' o 'define')
-            # Según tu captura, el modo correcto es 'rules'.
-            # Eliminamos 'mode': 'expression' si existe.
+            # 1. FORZAR MODO 'rules'
             if params.get('mode') == 'expression' or 'conditions' in params:
                 logger.warning(f"🔧 Switch '{node_name}': Forzando cambio de 'expression' a 'rules'")
                 params['mode'] = 'rules'
             
-            # 2. ESTRUCTURA CORRECTA: rules -> values -> [rules list]
+            # 2. ESTRUCTURA CORRECTA
             if 'rules' not in params: params['rules'] = {}
             if 'values' not in params['rules']: params['rules']['values'] = []
             
             current_rules = params['rules']['values']
             
-            # 3. SI FALTAN REGLAS PARA LOS CABLES, INYECTARLAS
-            # Si el Builder creó 3 salidas, debe haber 3 reglas.
+            # 3. REPARAR REGLAS FALTANTES
             if len(current_rules) < required_outputs:
                 missing = required_outputs - len(current_rules)
                 for _ in range(missing):
-                    # Estructura estándar para n8n Switch Rules
                     current_rules.append({
                         "conditions": {
                             "options": { "caseSensitive": True, "leftValue": "", "typeValidation": "strict", "version": 2 },
