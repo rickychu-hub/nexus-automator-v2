@@ -1,5 +1,5 @@
 # nexus_frontend/app.py
-# VERSIÓN V6.0 - FINAL PROD (Auth + Historial + Mission Control UI)
+# VERSIÓN V7.1 - SIDEBAR UX (Botones Multilínea + Títulos Reales)
 
 import streamlit as st
 import requests
@@ -54,105 +54,134 @@ if "interview_history" not in st.session_state: st.session_state.interview_histo
 if "stored_answers" not in st.session_state: st.session_state.stored_answers = {}
 if "final_briefing" not in st.session_state: st.session_state.final_briefing = ""
 
-# --- ESTILOS CSS (Mission Control + Login) ---
-st.markdown("""
-    <style>
-    
-    /* Tema General Dark */
-    .stApp { background: linear-gradient(180deg, #0e1117 0%, #161b22 100%); color: #c9d1d9; }
-    
-    /* Login Box */
-    .login-container {
-        background-color: #161b22;
-        padding: 40px;
-        border-radius: 10px;
-        border: 1px solid #30363d;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    
-    /* Sidebar History Items */
-    div[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
-    
-    /* Chat Bubbles */
-    div[data-testid="stChatMessage-assistant"] { background: #161b22; border: 1px solid #30363d; border-radius: 12px; }
-    div[data-testid="stChatMessage-user"] { background: #1f6feb20; border: 1px solid #1f6feb; border-radius: 12px; }
-    
-    /* Mission Control Card */
-    .deploy-card {
-        background-color: #0d1117;
-        border: 1px solid #30363d;
-        border-radius: 10px;
-        padding: 20px;
-        margin-top: 10px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
-    .deploy-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #30363d;
-        padding-bottom: 10px;
-        margin-bottom: 15px;
-    }
-    .status-badge {
-        background-color: #238636;
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8em;
-        font-weight: bold;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .id-badge {
-        font-family: monospace;
-        color: #8b949e;
-        font-size: 0.9em;
-    }
-    
-    /* Botones Personalizados */
-    .n8n-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background-color: #ff6d5a;
-        color: white !important;
-        padding: 0.5rem 1rem;
-        border-radius: 6px;
-        text-decoration: none;
-        font-weight: 600;
-        width: 100%;
-        border: 1px solid #ff6d5a;
-        transition: all 0.2s;
-    }
-    .n8n-btn:hover {
-        background-color: #ff8f80;
-        border-color: #ff8f80;
-        color: white !important;
-    [data-testid="stSidebar"] {
-        min-width: 400px !important; /* Ajusta este valor a tu gusto (defecto es aprox 336px) */
-        max-width: 600px !important;    
-    }
-    /* Forzar el ancho de la barra lateral */
+# --- FUNCIONES DE UTILIDAD (CSS & LOGIC) ---
+
+def load_custom_css():
+    st.markdown("""
+        <style>
+        /* Tema General Dark */
+        .stApp { background: linear-gradient(180deg, #0e1117 0%, #161b22 100%); color: #c9d1d9; }
+        
+        /* Login Box */
+        .login-container {
+            background-color: #161b22;
+            padding: 40px;
+            border-radius: 10px;
+            border: 1px solid #30363d;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        /* Sidebar History Items - ESTILOS MEJORADOS */
+        div[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
+        
+        /* Inyección específica para botones del sidebar */
+        section[data-testid="stSidebar"] button {
+            white-space: normal !important;        /* Permitir múltiples líneas */
+            height: auto !important;               /* Altura dinámica */
+            min-height: 45px !important;           /* Altura mínima para click */
+            padding: 8px 12px !important;          /* Padding cómodo */
+            text-align: left !important;           /* Alinear texto a la izquierda */
+            justify-content: flex-start !important; /* Flex align start */
+            font-size: 12px !important;            /* Fuente compacta */
+            line-height: 1.4 !important;           /* Espaciado de línea */
+            border: 1px solid #30363d !important;  /* Borde sutil */
+            background-color: #161b22 !important;  /* Fondo oscuro */
+            color: #c9d1d9 !important;             /* Texto claro */
+            transition: all 0.2s ease !important;
+        }
+        
+        section[data-testid="stSidebar"] button:hover {
+            border-color: #8b949e !important;
+            background-color: #21262d !important;
+        }
+
+        /* Fix para el texto interior del botón */
+        section[data-testid="stSidebar"] button p {
+            font-size: 12px !important;
+            font-weight: 500 !important;
+        }
+        
+        /* Chat Bubbles */
+        div[data-testid="stChatMessage-assistant"] { background: #161b22; border: 1px solid #30363d; border-radius: 12px; }
+        div[data-testid="stChatMessage-user"] { background: #1f6feb20; border: 1px solid #1f6feb; border-radius: 12px; }
+        
+        /* Mission Control Card */
+        .deploy-card {
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .deploy-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .status-badge {
+            background-color: #238636;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .id-badge {
+            font-family: monospace;
+            color: #8b949e;
+            font-size: 0.9em;
+        }
+        
+        /* Botones Personalizados (n8n) */
+        .n8n-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ff6d5a;
+            color: white !important;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            width: 100%;
+            border: 1px solid #ff6d5a;
+            transition: all 0.2s;
+        }
+        .n8n-btn:hover {
+            background-color: #ff8f80;
+            border-color: #ff8f80;
+            color: white !important;
+        }
+        
+        /* Sidebar Width override */
         section[data-testid="stSidebar"] {
-            min-width: 450px !important;
-            width: 600px !important;
+            min-width: 350px !important;
+            width: 400px !important;
         }
-        /* Ajustar el contenido interno para que no se corte */
-        section[data-testid="stSidebar"] .block-container {
-            padding-left: 2rem;
-            padding-right: 2rem;
-        }
-    
-    /* Ajustes Streamlit */
-    .stCode { font-family: 'Fira Code', monospace !important; }
-    </style>
-""", unsafe_allow_html=True)
+        
+        /* Ajustes Streamlit */
+        .stCode { font-family: 'Fira Code', monospace !important; }
+        </style>
+    """, unsafe_allow_html=True)
 
+load_custom_css()
 
-# --- 2. FUNCIONES DE UTILIDAD ---
+def generating_thoughts_formatter(text: str) -> str:
+    """Inyecta emojis en el log de pensamiento para mejor UX."""
+    text = text.replace("Investigator", "🕵️ **Investigator**")
+    text = text.replace("Architect", "🏛️ **Architect**")
+    text = text.replace("Builder", "🏗️ **Builder**")
+    text = text.replace("Error", "⚠️ **Error**")
+    return text
+
 def generar_nombre_corto(briefing_text: str) -> str:
     if not briefing_text: return "workflow"
     text = briefing_text.lower()
@@ -187,25 +216,20 @@ def login():
                 st.error("❌ Credenciales incorrectas")
 
 
-
 def load_workflow_from_history(record):
     """
     Carga un workflow histórico, parsea el JSON y usa el nombre real.
     """
-    # 1. RECUPERAR DATOS CORRECTOS
-    # Usamos la columna 'name' (que vi en tu tabla) para el título
     wf_name = record.get("name") or "Workflow Sin Título"
     wf_desc = record.get("description") or "Sin descripción disponible."
     
-    # 2. PARSEO DE JSON (La solución al error rojo)
-    # El error ocurre porque 'n8n_workflow_id' viene como texto, no como objeto.
     raw_data = record.get("n8n_workflow_id")
     wf_json = {} 
     
     if raw_data:
         if isinstance(raw_data, str):
             try:
-                wf_json = json.loads(raw_data) # <--- AQUÍ convertimos Texto a Objeto
+                wf_json = json.loads(raw_data)
             except json.JSONDecodeError:
                 st.toast("⚠️ Error: El JSON del workflow está corrupto.", icon="❌")
                 return
@@ -215,27 +239,23 @@ def load_workflow_from_history(record):
         st.toast("⚠️ Registro vacío.", icon="❌")
         return
 
-    # 3. RECONSTRUIR EL CHAT
+    # RECONSTRUIR EL CHAT
     st.session_state.messages = [] 
     
-    # Creamos el mensaje simulado del asistente
     st.session_state.messages.append({
         "role": "assistant",
         "content": json.dumps({
-            # AQUI usamos el nombre real en lugar del texto genérico
             "executive_summary": f"📂 **{wf_name}**\n\n> {wf_desc}"
         }),
-        "workflow_json": wf_json, # Pasamos el objeto limpio
+        "workflow_json": wf_json,
         "briefing": wf_desc
     })
     
-    # 4. Configuración de estado
     st.session_state.conversation_state = "waiting_for_prompt"
     
     
 def render_sidebar():
     with st.sidebar:
-        # Manejo seguro del username
         username = st.session_state.get("username", "Usuario")
         st.markdown(f"### 👤 `{username}`")
         
@@ -248,26 +268,33 @@ def render_sidebar():
         
         if supabase:
             try:
-                # 1. CORRECCIÓN: Añadimos 'created_at' y 'description' al select
-                # Asumo que 'description' es lo que usabas como 'prompt'.
-                response = supabase.table("workflows").select("id, name, description, created_at, n8n_workflow_id").order("created_at", desc=True).limit(10).execute()
+                # Obtenemos los últimos 20 workflows
+                response = supabase.table("workflows").select("id, name, description, created_at, n8n_workflow_id").order("created_at", desc=True).limit(20).execute()
                 
-                # 2. CORRECCIÓN: El bucle va AQUÍ (dentro del try, después del execute), no en el except
                 if response.data:
                     for item in response.data:
-                        # Usamos 'description' o 'name' porque 'prompt' no existe en tu tabla
-                        raw_text = item.get("name") or item.get("description") or "Sin título"
-                        
-                        # Acortar texto para que quepa en el botón
-                        label_short = (raw_text[:28] + "...") if len(raw_text) > 28 else raw_text
-                        
-                        # Formatear fecha (Manejo seguro si es None)
+                        # 1. Lógica de Título Real
+                        # Usamos 'name' como fuente de verdad
+                        real_name = item.get("name")
                         date_str = item.get("created_at", "")
                         created_at_fmt = date_str[5:10] if date_str else "??"
 
-                        # Botón de carga
+                        # Determinar etiqueta del botón
+                        if real_name and len(real_name) > 2:
+                            # Si hay un nombre válido, lo usamos.
+                            # Para UX, podemos poner la fecha pequeña o al inicio
+                            # Formato: "Nombre del Proyecto" o "📅 Fecha | Nombre"
+                            # El usuario pidió "usa ese título real"
+                            button_label = f"{real_name}" 
+                        else:
+                            # Fallback si no hay título
+                            desc = item.get("description", "")
+                            fallback_text = (desc[:30] + "...") if desc else "Sin Título"
+                            button_label = f"📅 {created_at_fmt} | {fallback_text}"
+
+                        # Renderizar botón con estilo 'multiline' gracias al CSS inyectado
                         st.button(
-                            f"📅 {created_at_fmt} | {label_short}", 
+                            button_label,
                             key=item['id'], 
                             use_container_width=True,
                             on_click=load_workflow_from_history,
@@ -278,25 +305,35 @@ def render_sidebar():
 
             except Exception as e:
                 st.sidebar.error("Error cargando historial.")
-                print(f"DEBUG Error DB: {e}") # Para que lo veas en tu terminal
+                print(f"DEBUG Error DB: {e}")
                 
         else:
             st.warning("DB no conectada")
 
         st.divider()
         if st.button("🗑️ Nuevo Chat (Limpiar)", use_container_width=True):
+            # HARD RESET: Limpieza profunda de toda la sesión
+            keys_to_reset = [
+                "messages", 
+                "conversation_state", 
+                "interview_history", 
+                "stored_answers", 
+                "final_briefing"
+            ]
+            for key in keys_to_reset:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            # Re-inicializar básicos para evitar errores antes del rerun
             st.session_state.messages = []
-            # Asegúrate de reiniciar también el estado del workflow actual
-            if 'current_workflow' in st.session_state:
-                del st.session_state['current_workflow']
+            st.session_state.conversation_state = "waiting_for_prompt"
             st.rerun()
+
 def display_message(message):
     with st.chat_message(message["role"]):
-        # A. Procesamiento de Texto / JSON
         content = message["content"]
         workflow_data = message.get("workflow_json")
         
-        # Intentamos mostrar texto limpio
         if workflow_data:
             try:
                 parsed = json.loads(content)
@@ -313,11 +350,8 @@ def display_message(message):
             except:
                 st.markdown(content)
 
-        # B. Tarjeta de Despliegue (Mission Control)
         if workflow_data:
             deployment = workflow_data.get("deployment")
-            
-            # Preparar datos para botones
             unique_id = str(time.time_ns())[-6:]
             brief = message.get("briefing", "")
             short_name = generar_nombre_corto(brief)
@@ -329,7 +363,6 @@ def display_message(message):
                 webhook_url = deployment.get("webhook_url")
                 dashboard_url = deployment.get("dashboard_url")
                 
-                # Renderizar Tarjeta
                 st.markdown(f"""
                 <div class="deploy-card">
                     <div class="deploy-header">
@@ -364,7 +397,6 @@ def display_message(message):
                     )
             
             else:
-                # Fallback si no hay deployment automático
                 st.warning("⚠️ El workflow fue diseñado, pero la inyección automática no está disponible.")
                 st.download_button(
                     label="📥 Descargar JSON para Importación Manual",
@@ -390,32 +422,25 @@ def handle_user_input(user_input):
 
 # --- 4. APLICACIÓN PRINCIPAL ---
 def main_app():
-    # Renderizamos la Sidebar
     render_sidebar()
 
-    # Cabecera
     st.markdown("## 🤖 Nexus Automator")
     st.markdown("Tu Co-Piloto de automatización con **IA + n8n**. Describe un proceso y generaremos un workflow completo.", unsafe_allow_html=True)
     st.markdown("---")
 
-    # Pestañas
     tab_assistant, tab_monitor = st.tabs(["🤖 Asistente", "📊 Monitorización"])
 
-    # --- PESTAÑA ASISTENTE ---
     with tab_assistant:
         main_ui = st.empty()
         with main_ui.container():
-            # Renderizar mensajes
             for msg in st.session_state.messages:
                 display_message(msg)
 
-            # Estado: Esperando Prompt
             if st.session_state.conversation_state == "waiting_for_prompt":
                 st.info("💡 Describe un proceso (ej: *Webhook que recibe datos y los manda a Slack*).")
                 if prompt := st.chat_input("¿Qué automatizamos hoy?"):
                     handle_user_input(prompt)
 
-            # Estado: Esperando Respuestas (Entrevista)
             if st.session_state.conversation_state == "waiting_for_answers":
                 if st.session_state.interview_history["questions"]:
                     with st.chat_message("assistant"):
@@ -435,7 +460,6 @@ def main_app():
                     st.session_state.conversation_state = "interviewing"
                     st.rerun()
 
-        # Lógica: Entrevistando
         if st.session_state.conversation_state == "interviewing":
             with st.spinner("🧠 El Co-Piloto está pensando..."):
                 try:
@@ -455,7 +479,6 @@ def main_app():
                     st.error(f"Error: {e}")
                     st.session_state.conversation_state = "waiting_for_prompt"
 
-        # Lógica: Generando
         if st.session_state.conversation_state == "generating":
             main_ui.empty()
             st.markdown("### 🚀 Generando tu Automatización")
@@ -464,24 +487,53 @@ def main_app():
             
             complete = False
             with st.status("⚙️ El Co-Piloto está trabajando...", expanded=True) as status:
+                log_placeholder = status.empty() # Placeholder para streaming suave
                 final_json = None
                 summary = ""
                 wf_obj = None
+                full_response_buffer = "" # Buffer para acumular toda la respuesta
+                
                 try:
+                    # STREAMING SUAVE: iter_content en lugar de iter_lines
                     resp = requests.post(GENERATION_URL, json={"user_prompt": st.session_state.final_briefing}, timeout=600, stream=True)
                     resp.raise_for_status()
-                    for line in resp.iter_lines():
-                        if line:
-                            decoded = line.decode("utf-8")
-                            if decoded.startswith("{") and decoded.endswith("}"):
-                                final_json = decoded
-                            elif "ERROR:" in decoded:
-                                status.update(label=f"❌ {decoded}", state="error")
-                                complete = True
-                                break
-                            else:
-                                status.write(decoded)
                     
+                    for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
+                        if chunk:
+                            # 1. Acumular respuesta completa
+                            full_response_buffer += chunk
+                            
+                            # 2. Actualizar UI en tiempo real con emojis
+                            # Solo mostramos el buffer hasta el momento, aplicando formato, 
+                            # pero cuidado con re-renderizar todo el texto muy largo.
+                            # Opción eficiente: Mostrar las últimas N líneas o todo el buffer procesado.
+                            display_text = generating_thoughts_formatter(full_response_buffer)
+                            log_placeholder.markdown(display_text + "▌") # Cursor blinking effect
+                                
+                    
+                    # Al finalizar el stream, intentamos extraer el JSON final.
+                    # Asumimos que el backend envía el JSON al final o está contenido en la respuesta.
+                    # Buscamos el último objeto JSON válido en el buffer si es posible.
+                    # O usamos la lógica de líneas si el backend envía líneas limpias.
+                    
+                    # Intentar parsear la última línea o bloque como JSON
+                    lines = full_response_buffer.strip().split('\n')
+                    potential_json = lines[-1] if lines else ""
+                    
+                    if potential_json.startswith("{") and potential_json.endswith("}"):
+                        final_json = potential_json
+                    else:
+                        # Fallback: Intentar encontrar un bloque JSON grande
+                        try:
+                            # A veces el JSON tiene newlines dentro, buscamos el último '{'
+                            last_brace_index = full_response_buffer.rfind('{')
+                            if last_brace_index != -1:
+                                candidate = full_response_buffer[last_brace_index:]
+                                json.loads(candidate) # Validar si es JSON
+                                final_json = candidate
+                        except:
+                            pass
+
                     if final_json:
                         api_resp = json.loads(final_json)
                         wf_obj = api_resp.get("workflow_json")
@@ -500,6 +552,11 @@ def main_app():
                             "briefing": st.session_state.final_briefing
                         })
                         complete = True
+                    else:
+                        status.update(label="⚠️ Finalizó pero no se detectó JSON válido.", state="error")
+                        logger.error(f"Buffer final: {full_response_buffer}")
+                        complete = True
+
                 except Exception as e:
                     logger.error(f"Error stream: {e}")
                     status.update(label="❌ Error de conexión", state="error")
@@ -513,7 +570,6 @@ def main_app():
                 time.sleep(1)
                 st.rerun()
 
-    # --- PESTAÑA MONITORIZACIÓN ---
     with tab_monitor:
         st.header("Estado del Sistema")
         if not supabase:
@@ -538,7 +594,6 @@ def main_app():
             except Exception as e:
                 st.error(f"Error DB: {e}")
 
-# --- 5. PUNTO DE ENTRADA (Flow Auth) ---
 if __name__ == "__main__":
     if not st.session_state.authenticated:
         login()
