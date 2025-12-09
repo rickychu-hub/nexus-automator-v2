@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import time
+import glob
 from chromadb.utils import embedding_functions
 import google.generativeai as genai
 from app.core.config import settings
@@ -94,3 +95,128 @@ def get_collections():
 
 def get_kb_memory():
     return _knowledge_base_memory
+
+def hydrate_knowledge_base():
+    """
+    Hydrates ChromaDB with:
+    1. Base Knowledge Base (Nodes)
+    2. Workflow Examples (ETL + Batching)
+    """
+    global _chroma_client, _kb_collection, _exp_collection, _knowledge_base_memory
+    
+    # Aseguramos que el cliente esté inicializado
+    if not _chroma_client:
+        init_chroma_client()
+        
+    stats = {"nodes_loaded": 0, "workflows_loaded": 0, "errors": []}
+    
+    # 1. Ingestar Base de Conocimiento (Nodos)
+    try:
+        if not _kb_collection:
+            logger.error("Colección KB no inicializada.")
+            return stats
+            
+        # Recargar JSON si es necesario
+        if not _knowledge_base_memory and os.path.exists(settings.KB_PATH):
+            with open(settings.KB_PATH, 'r', encoding='utf-8') as f:
+                kb_data = json.load(f)
+                _knowledge_base_memory = kb_data
+                
+        # Preparar documentos
+        ids = []
+        documents = []
+        metadatas = []
+        
+        for k, v in _knowledge_base_memory.items():
+            ids.append(k)
+            documents.append(json.dumps(v)) # Serializamos el nodo entero
+            metadatas.append({"type": "node_definition", "category": "system"})
+            
+        if ids:
+            _kb_collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+            stats["nodes_loaded"] = len(ids)
+            logger.info(f"✅ KB Core ingestada: {len(ids)} nodos.")
+
+    except Exception as e:
+        logger.error(f"❌ Error ingestando KB Core: {e}")
+        stats["errors"].append(str(e))
+
+    # 2. Ingestar Ejemplos Masivos (ETL + Batching)
+    try:
+        if not _exp_collection:
+            logger.error("Colección Experience no inicializada.")
+            return stats
+            
+        pipeline_path = os.path.join(os.getcwd(), "data_pipeline", "workflow_source_jsons", "*.json")
+        json_files = glob.glob(pipeline_path)
+        logger.info(f"📁 Encontrados {len(json_files)} archivos de workflow para ingerir.")
+        
+        batch_size = 50
+        current_batch_ids = []
+        current_batch_docs = []
+        current_batch_metas = []
+        
+        for file_path in json_files:
+            try:
+                filename = os.path.basename(file_path)
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    wf_data = json.load(f)
+                    
+                # --- ETL: Extracción de Características Clave ---
+                # Queremos 'nodes' y 'connections', pero LIMPIOS de posición UI
+                clean_nodes = []
+                for node in wf_data.get('nodes', []):
+                    clean_node = {
+                        "name": node.get("name"),
+                        "type": node.get("type"),
+                        "parameters": node.get("parameters"),
+                        # OMITIMOS: position, id, typeVersion (opcional)
+                    }
+                    clean_nodes.append(clean_node)
+                    
+                clean_wf = {
+                    "nodes": clean_nodes,
+                    "connections": wf_data.get("connections", {})
+                }
+                
+                # Crear Documento de Texto para Embedding
+                doc_text = json.dumps(clean_wf)
+                
+                current_batch_ids.append(filename)
+                current_batch_docs.append(doc_text)
+                current_batch_metas.append({"filename": filename, "source": "manual_ingestion"})
+                
+                # Procesar Batch
+                if len(current_batch_ids) >= batch_size:
+                    _exp_collection.upsert(
+                        ids=current_batch_ids,
+                        documents=current_batch_docs,
+                        metadatas=current_batch_metas
+                    )
+                    stats["workflows_loaded"] += len(current_batch_ids)
+                    logger.info(f"   -> Batch procesado ({len(current_batch_ids)} items). Total: {stats['workflows_loaded']}")
+                    
+                    # Reset Batch
+                    current_batch_ids = []
+                    current_batch_docs = []
+                    current_batch_metas = []
+                    
+            except Exception as e:
+                logger.warning(f"Error procesando archivo {filename}: {e}")
+                # No fallamos todo el proceso por un archivo
+                
+        # Procesar remanentes
+        if current_batch_ids:
+            _exp_collection.upsert(
+                ids=current_batch_ids,
+                documents=current_batch_docs,
+                metadatas=current_batch_metas
+            )
+            stats["workflows_loaded"] += len(current_batch_ids)
+            logger.info(f"   -> Batch final procesado. Total: {stats['workflows_loaded']}")
+
+    except Exception as e:
+        logger.error(f"❌ Error ingestando Workflows: {e}")
+        stats["errors"].append(str(e))
+        
+    return stats

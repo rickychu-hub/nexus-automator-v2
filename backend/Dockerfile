@@ -24,6 +24,9 @@ COPY knowledge_base_final_CURATED.json .
 # 4. Copiar EL CÓDIGO MODULAR (La carpeta app entera)
 COPY app ./app
 
+# 4.5 COPY THE DATA PIPELINE (Source JSONs for Hydration)
+COPY data_pipeline ./data_pipeline
+
 # 5. Configurar el puerto (Render inyecta PORT, pero definimos 8000 por defecto)
 EXPOSE 8000
 

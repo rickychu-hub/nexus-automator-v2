@@ -10,7 +10,7 @@ from pydantic import BaseModel
 # Importaciones locales
 from app.core.config import settings
 from app.services.database_service import init_supabase
-from app.services.chroma_service import init_chroma_client, get_collections
+from app.services.chroma_service import init_chroma_client, get_collections, hydrate_knowledge_base
 from app.agents.interviewer import agent_interviewer
 from app.agents.orchestrator import stream_generation_pipeline
 
@@ -88,6 +88,17 @@ def readinessz():
     # Verificamos si las colecciones existen (son objetos válidos)
     ready = kb is not None and exp is not None
     return {"ready": ready, "chroma_connected": ready}
+
+@app.post("/system/ingest-kb", tags=["System"])
+def ingest_knowledge_base():
+    """
+    Triggers manual hydration of the Knowledge Base.
+    Loads core nodes and massive workflow datasets (ETL + Batching).
+    Running synchronously to avoid blocking the event loop (FastAPI spawns a thread).
+    """
+    logger.info("♻️ Iniciando ingesta manual de Knowledge Base...")
+    stats = hydrate_knowledge_base()
+    return {"status": "completed", "stats": stats}
 
 @app.post("/interview/")
 async def handle_interview(request: InterviewRequest):
