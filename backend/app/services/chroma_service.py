@@ -110,12 +110,19 @@ def hydrate_knowledge_base():
         
     stats = {"nodes_loaded": 0, "workflows_loaded": 0, "errors": []}
     
+    # FIX: Forzamos la obtención/creación de colecciones para evitar errores de inicialización
+    try:
+        ef = GeminiEmbeddingFunction()
+        _kb_collection = _chroma_client.get_or_create_collection(name=settings.ENCYCLOPEDIA_COLLECTION, embedding_function=ef)
+        _exp_collection = _chroma_client.get_or_create_collection(name=settings.EXPERIENCE_COLLECTION, embedding_function=ef)
+        logger.info("✅ Colecciones inicializadas/verificadas para ingesta.")
+    except Exception as e:
+        logger.error(f"❌ Error fatal recuperando colecciones: {e}")
+        stats["errors"].append(f"Init Error: {str(e)}")
+        return stats
+    
     # 1. Ingestar Base de Conocimiento (Nodos)
     try:
-        if not _kb_collection:
-            logger.error("Colección KB no inicializada.")
-            return stats
-            
         # Recargar JSON si es necesario
         if not _knowledge_base_memory and os.path.exists(settings.KB_PATH):
             with open(settings.KB_PATH, 'r', encoding='utf-8') as f:
@@ -143,10 +150,6 @@ def hydrate_knowledge_base():
 
     # 2. Ingestar Ejemplos Masivos (ETL + Batching)
     try:
-        if not _exp_collection:
-            logger.error("Colección Experience no inicializada.")
-            return stats
-            
         pipeline_path = os.path.join(os.getcwd(), "data_pipeline", "workflow_source_jsons", "*.json")
         json_files = glob.glob(pipeline_path)
         logger.info(f"📁 Encontrados {len(json_files)} archivos de workflow para ingerir.")
