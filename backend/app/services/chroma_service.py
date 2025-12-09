@@ -54,23 +54,28 @@ def init_chroma_client():
 # ... dentro de init_chroma_client ...
 
     # 2. Conectar a Chroma Server
+    # 2. Conectar a Chroma Server
     try:
-        if not settings.CHROMA_SERVER_HOST:
-            raise ValueError("CHROMA_SERVER_HOST no definido.")
-            
-    # 1. Recuperamos la variable (que vendrá de Render o del .env)
-        # En backend usa settings.CHROMA_SERVER_HOST
-        # En pipeline usa os.getenv("CHROMA_SERVER_HOST")
-        raw_host = settings.CHROMA_SERVER_HOST # (o la variable correspondiente)
-
-        # 2. Limpieza A PRUEBA DE BALAS (Quitamos http:// y puertos)
-        clean_host = raw_host.replace("http://", "").replace("https://", "").split(":")[0]
+        # Recuperar Host y Port de la configuración (o env vars)
+        # Prioridad: Variable de entorno > Configuración > Default Localhost
+        host = settings.CHROMA_SERVER_HOST or os.getenv("CHROMA_SERVER_HOST") or "localhost"
+        port = settings.CHROMA_SERVER_PORT or os.getenv("CHROMA_SERVER_PORT") or 8000
         
-        logger.info(f"🔌 Conectando a: {clean_host}")
+        # Limpieza del Host (por si viene con http/https)
+        clean_host = host.replace("http://", "").replace("https://", "").split(":")[0]
+        
+        # Validación básica de puerto
+        try:
+            clean_port = int(port)
+        except ValueError:
+            logger.warning(f"Puerto inválido '{port}', usando 8000 por defecto.")
+            clean_port = 8000
 
-        # 3. Conexión Dinámica (Ya no está "hardcoded")
+        logger.info(f"🔌 Conectando a Chroma en: {clean_host}:{clean_port}")
+
+        # 3. Conexión Dinámica
         global _chroma_client
-        _chroma_client = chromadb.HttpClient(host=clean_host, port=8000)
+        _chroma_client = chromadb.HttpClient(host=clean_host, port=clean_port)
     # ---------------------------------------------------
     
         ef = GeminiEmbeddingFunction()

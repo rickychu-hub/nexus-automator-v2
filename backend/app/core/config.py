@@ -22,6 +22,7 @@ class Settings:
     
     # Chroma Server (Para Docker)
     CHROMA_SERVER_HOST: str = os.getenv("CHROMA_SERVER_HOST")
+    CHROMA_SERVER_PORT: int = int(os.getenv("CHROMA_SERVER_PORT", 8000))
     
     # Collections
     ENCYCLOPEDIA_COLLECTION: str = 'n8n_nodes_final_v5'
