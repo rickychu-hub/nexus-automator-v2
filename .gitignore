@@ -3,3 +3,4 @@
 backend/.env
 data_pipeline/.env
 n8n/.env
+.venv/
