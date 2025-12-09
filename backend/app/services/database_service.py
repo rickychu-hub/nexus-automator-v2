@@ -29,11 +29,11 @@ def get_db():
 
 # --- NUEVA FUNCIÓN DE GUARDADO ---
 # --- NUEVA FUNCIÓN DE GUARDADO ---
-def save_workflow_log(prompt: str, workflow_json: dict, summary: str, smart_title: str = None):
+def save_workflow_log(prompt: str, workflow_json: dict, summary: str, smart_title: str = None, ai_diagnosis: str = None, suggested_fix: str = None):
     """
     Guarda el resultado de la generación en Supabase.
     Intenta guardar en 'workflows' y en 'generation_logs'.
-    Ahora soporta smart_title.
+    Ahora soporta smart_title y diagnósticos SRE.
     """
     db = get_db()
     if not db:
@@ -70,6 +70,8 @@ def save_workflow_log(prompt: str, workflow_json: dict, summary: str, smart_titl
         log_data = {
             "prompt_text": prompt,
             "status": "success",
+            "ai_diagnosis": ai_diagnosis,
+            "suggested_fix": suggested_fix,
             "created_at": datetime.utcnow().isoformat()
         }
         try:
@@ -80,3 +82,30 @@ def save_workflow_log(prompt: str, workflow_json: dict, summary: str, smart_titl
 
     except Exception as e:
         logger.error(f"❌ Error general guardando en Supabase: {e}")
+
+# --- REGISTRO DE EJECUCIÓN (SRE Módule) ---
+def save_execution_log(workflow_name: str, status: str, error_message: str = None, ai_diagnosis: str = None, suggested_fix: str = None, metadata: dict = None):
+    """
+    Guarda un log de ejecución de n8n, incluyendo diagnósticos de IA.
+    """
+    db = get_db()
+    if not db: return
+
+    try:
+        log_entry = {
+            "workflow_name": workflow_name,
+            "status": status,
+            "error_details": error_message,
+            "ai_diagnosis": ai_diagnosis,
+            "suggested_fix": suggested_fix,
+            "metadata": json.dumps(metadata) if metadata else None,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        # Guardar en 'execution_logs'
+        # Asegúrate de crear esta tabla en Supabase si no existe
+        db.table("execution_logs").insert(log_entry).execute()
+        logger.info(f"📋 Ejecución registrada: {workflow_name} [{status}]")
+
+    except Exception as e:
+        logger.error(f"⚠️ Error guardando execution_log: {e}")

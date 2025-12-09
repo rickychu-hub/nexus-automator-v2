@@ -84,7 +84,52 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
                 
                 main_outputs[target_index].append({"node": current_node_name, "type": "main", "index": 0})
             
+
             last_node_in_chain = current_node_name
+
+            # --- [PATTERN: DATA CLEANING] INYECTAR CLEAN DATA NODE DESPUÉS DE IA ---
+            # Detectamos si es un nodo de IA para limpiar su salida antes de seguir
+            is_ai_node = any(x in node_id for x in ["openAi", "langChain", "sentiment", "googleGemini", "anthropic"])
+            
+            if is_ai_node:
+                set_node_name = f"CleanData {base_name}"
+                
+                # Check uniqueness
+                count_set = node_counts.get(set_node_name, 0) + 1
+                node_counts[set_node_name] = count_set
+                if count_set > 1: set_node_name = f"{set_node_name} {count_set}"
+                
+                # Creamos el nodo SET (Data Cleaning)
+                set_node = {
+                    "name": set_node_name,
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 1,
+                    "position": [0,0], # El Assembler lo posicionará
+                    "id": f"node_{len(nodes)}_{int(time.time())}_clean",
+                    "parameters": {
+                        "keepOnlySet": False,
+                        "values": {
+                            "string": [
+                                # Mapeo Profundo para OpenAI / AI Agents
+                                # Intenta leer estructuras anidadas complejas primero, luego fallbacks planos
+                                { "name": "sentiment", "value": "={{ $json.choices[0].message.content.sentimiento || $json.output.sentiment || $json.sentiment || 'neutral' }}" },
+                                { "name": "summary", "value": "={{ $json.choices[0].message.content.resumen || $json.output.text || $json.text || $json.content }}" }
+                            ]
+                        },
+                        "options": {}
+                    }
+                }
+                
+                nodes.append(set_node)
+                
+                # Conectar AI Node -> CleanData Node
+                connections.setdefault(current_node_name, {"main": []})
+                connections[current_node_name]["main"].append([{"node": set_node_name, "type": "main", "index": 0}])
+                
+                # [CRÍTICO] Actualizar puntero: Los siguientes nodos (ej: If) deben conectarse al SET
+                current_node_name = set_node_name
+                last_node_in_chain = set_node_name
+
 
             # Procesar Ramas (Recursividad)
             if 'branches' in step and isinstance(step['branches'], dict):

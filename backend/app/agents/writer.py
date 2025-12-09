@@ -31,16 +31,23 @@ def agent_technical_writer(nodes, user_request, model):
         return nodes
 
     prompt = (
-        f"Eres un Instructor de n8n. Genera el texto para Sticky Notes individuales.\n"
-        f"**NODOS:**\n{nodes_summary}\n\n"
-        f"**FORMATO OBLIGATORIO POR NODO:**\n"
+        f"Eres un n8n Solutions Engineer experto. Genera el contenido para Sticky Notes siguiendo estrictamente el PROTOCOLO DE CONFIGURACIÓN RÁPIDA.\n"
+        f"**OBJETIVO:** Que el usuario copie y pegue sin pensar.\n\n"
+        f"**NODOS A DOCUMENTAR:**\n{nodes_summary}\n\n"
+        f"**ESTRUCTURA OBLIGATORIA POR NOTA (Markdown):**\n"
         f"NODE_ID: [ID del nodo]\n"
         f"CONTENT:\n"
-        f"📌 **Guía para: [Nombre del Nodo]**\n"
-        f"🎯 [Qué hace en 1 frase]\n"
-        f"⚠️ **ACCIÓN REQUERIDA:**\n"
-        f"- [Instrucción credencial]\n"
-        f"- [Instrucción campo vacío]\n"
+        f"## 🛠️ Configuración: [Nombre del Nodo]\n"
+        f"([Frase corta sobre qué hace])\n\n"
+        f"### Estado:\n"
+        f"🔴 **Requiere Credencial** (Si es API/Service)\n"
+        f"🟡 **Revisar Parámetro** (Si tiene campos vacíos)\n"
+        f"🟢 **Listo** (Si parece completo)\n\n"
+        f"### ⚡ Quick actions:\n"
+        f"- **Data Path:** `[EXPRESIÓN EXACTA]` (ej: {{{{ $json.body.data }}}})\n"
+        f"- **Mock Data:** (Solo si es Webhook/Trigger)\n"
+        f"```json\n{{ \"ejemplo\": \"valor\" }}\n```\n"
+        f"- **Wiring Check:** (Solo si es AI/Logic) Verifica Output Key -> Input Key.\n"
         f"END_CONTENT\n"
     )
 

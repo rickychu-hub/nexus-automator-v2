@@ -9,10 +9,11 @@ from pydantic import BaseModel
 
 # Importaciones locales
 from app.core.config import settings
-from app.services.database_service import init_supabase
+from app.services.database_service import init_supabase, save_execution_log
 from app.services.chroma_service import init_chroma_client, get_collections, hydrate_knowledge_base
 from app.agents.interviewer import agent_interviewer
 from app.agents.orchestrator import stream_generation_pipeline
+from app.agents.debugger import analyze_error
 
 # --- CONFIGURACIÓN DE LOGGING ---
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,12 @@ class InterviewRequest(BaseModel):
     original_prompt: str
     questions: list[str] = []
     answers: list[str] = []
+
+class ErrorReport(BaseModel):
+    workflow_name: str
+    error_message: str
+    workflow_json: dict = None # Contexto opcional para que la IA entienda
+    execution_id: str = None
 
 # --- EVENTOS DE INICIO ---
 @app.on_event("startup")
@@ -118,3 +125,29 @@ async def handle_create_workflow_streaming(request: WorkflowRequest):
         stream_generation_pipeline(request.user_prompt),
         media_type="text/plain"
     )
+
+@app.post("/webhook/error")
+async def handle_n8n_error(report: ErrorReport):
+    """
+    Endpoint SRE: Recibe errores de n8n, los analiza con IA y guarda el diagnóstico.
+    """
+    logger.warning(f"🚨 SRE Alert: Error en workflow '{report.workflow_name}'")
+    
+    # 1. Analizar con IA (Agente Debugger)
+    try:
+        diagnosis = analyze_error(report.error_message, report.workflow_json)
+    except Exception as e:
+        logger.error(f"Fallo en Debugger Agent: {e}")
+        diagnosis = {"diagnosis": "Error analizando logs", "suggested_fix": "Revisar logs crudos"}
+
+    # 2. Persistir en Supabase (Execution Logs)
+    save_execution_log(
+        workflow_name=report.workflow_name,
+        status="error",
+        error_message=report.error_message,
+        ai_diagnosis=diagnosis.get("diagnosis"),
+        suggested_fix=diagnosis.get("suggested_fix"),
+        metadata={"execution_id": report.execution_id}
+    )
+
+    return {"status": "recorded", "ai_feedback": diagnosis}
