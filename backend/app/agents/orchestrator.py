@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.services.chroma_service import get_kb_memory
 from app.services.database_service import save_workflow_log
 
-# --- NUEVO: IMPORTAMOS EL SERVICIO DE DESPLIEGUE ---
+# --- IMPORTAMOS EL SERVICIO DE DESPLIEGUE ---
 from app.services.n8n_service import n8n_deployer
 # ---------------------------------------------------
 
@@ -102,41 +102,34 @@ async def stream_generation_pipeline(user_prompt: str):
         except Exception as e:
             # Si falla el despliegue, NO rompemos el pipeline. Solo avisamos.
             logger.error(f"⚠️ Error en despliegue Headless: {e}")
-            yield f"   -> ⚠️ Aviso: No se pudo inyectar automáticamente (revisa variables N8N_). Entregando JSON manual.\n"
+            yield f"   -> ⚠️ Aviso: No se pudo inyectar automáticamente. Entregando JSON manual.\n"
         
         # ==============================================================================
-
+        # PASO 6.5: GENERACIÓN DE TÍTULO INTELIGENTE
         # ==============================================================================
-        # PASO 6.5: GENERACIÓN DE TÍTULO INTELIGENTE (NUEVO)
-        # ==============================================================================
-       # EN ORCHESTRATOR.PY (Paso 6.5)
+        yield "Generando nombre de sistema Nexus... 🏷️\n"
+        smart_title = ""
+        
+        try:
+            # PROMPT AJUSTADO
+            naming_prompt = (
+                f"Analiza esta solicitud: '{user_prompt}'. "
+                f"Tu tarea es generar un Título de Sistema Técnico para este workflow. "
+                f"REGLAS OBLIGATORIAS:"
+                f"1. Debe empezar SIEMPRE con el prefijo exacto: 'Nexus.OS :: '"
+                f"2. Debe usar vocabulario técnico (ej: Ingesta, Despliegue, Sincronización)."
+                f"3. Longitud ideal: entre 6 y 12 palabras."
+                f"Devuelve SOLO el título final sin comillas."
+            )
+            
+            title_resp = model.generate_content(naming_prompt)
+            # Limpieza extra
+            smart_title = title_resp.text.strip().replace('"', '').replace("Title:", "")
+            logger.info(f"🏷️ Nombre generado: {smart_title}")
 
-# ...
-yield "Generando nombre de sistema Nexus... 🏷️\n"
-try:
-    # NUEVO PROMPT AJUSTADO A TU ESTRATEGIA "LARGA Y PROFESIONAL"
-    naming_prompt = (
-        f"Analiza esta solicitud: '{user_prompt}'. "
-        f"Tu tarea es generar un Título de Sistema Técnico para este workflow. "
-        f"REGLAS OBLIGATORIAS:"
-        f"1. Debe empezar SIEMPRE con el prefijo exacto: 'Nexus.OS :: '"
-        f"2. Debe usar vocabulario técnico (ej: Ingesta, Despliegue, Sincronización, Orquestación)."
-        f"3. Debe mencionar las herramientas clave."
-        f"4. Longitud ideal: entre 6 y 12 palabras. Que suene a proceso corporativo serio."
-        f"Ejemplo: 'Nexus.OS :: Orquestación de datos de Ventas desde Webhook hacia CRM Hubspot'"
-        f"Devuelve SOLO el título final sin comillas."
-    )
-    
-    title_resp = model.generate_content(naming_prompt)
-    # Limpieza extra por si la IA pone comillas o espacios raros
-    smart_title = title_resp.text.strip().replace('"', '').replace("Title:", "")
-    
-    logger.info(f"🏷️ Nombre generado: {smart_title}")
-
-except Exception as e:
-    # Fallback por si falla la IA
-    smart_title = f"Nexus.OS :: Workflow Automatizado ({user_prompt[:20]}...)"
-# ...
+        except Exception as e:
+            # Fallback por si falla la IA
+            smart_title = f"Nexus.OS :: Workflow Automatizado ({user_prompt[:20]}...)"
 
         # ==============================================================================
 
@@ -148,8 +141,8 @@ except Exception as e:
             if deployment_data:
                 meta_info += f" [Auto-Deployed ID: {deployment_data.get('id')}]"
 
-            # --- CAMBIO AQUÍ: Pasamos 'smart_title' a la función ---
-            save_workflow_log(user_prompt, final_json_obj, meta_info, smart_title) # <--- OJO AQUÍ
+            # Pasamos 'smart_title' a la función
+            save_workflow_log(user_prompt, final_json_obj, meta_info, smart_title)
             logger.info("✅ Guardado en base de datos ejecutado.")
         except Exception as e:
             logger.error(f"⚠️ Error al guardar en DB: {e}")
