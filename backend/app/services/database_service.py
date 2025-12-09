@@ -28,10 +28,12 @@ def get_db():
     return supabase
 
 # --- NUEVA FUNCIÓN DE GUARDADO ---
-def save_workflow_log(prompt: str, workflow_json: dict, summary: str):
+# --- NUEVA FUNCIÓN DE GUARDADO ---
+def save_workflow_log(prompt: str, workflow_json: dict, summary: str, smart_title: str = None):
     """
     Guarda el resultado de la generación en Supabase.
     Intenta guardar en 'workflows' y en 'generation_logs'.
+    Ahora soporta smart_title.
     """
     db = get_db()
     if not db:
@@ -39,10 +41,19 @@ def save_workflow_log(prompt: str, workflow_json: dict, summary: str):
         return
 
     try:
+        # Inyectar título en metadatos del JSON por si acaso
+        if smart_title and isinstance(workflow_json, dict):
+            if "meta" not in workflow_json:
+                workflow_json["meta"] = {}
+            workflow_json["meta"]["smart_title"] = smart_title
+
+        # Priorizar smart_title como nombre, sino fallback al resumen
+        final_name = smart_title if smart_title else summary[:50]
+
         # 1. Intentar guardar en la tabla principal de workflows
         # NOTA: Ajusta los nombres de las columnas si son diferentes en tu Supabase
         data = {
-            "name": summary[:50],  # Usamos el resumen como nombre corto
+            "name": final_name, 
             "description": prompt,
             "n8n_workflow_id": json.dumps(workflow_json), # Asegúrate que tu columna se llame así o 'json_data'
             "created_at": datetime.utcnow().isoformat()
