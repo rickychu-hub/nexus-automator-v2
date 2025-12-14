@@ -389,19 +389,21 @@ def display_message(message):
                 
                 with col2:
                     st.download_button(
-                        label="💾 Descargar Backup (.json)",
+                        label="📥 Descargar Workflow (.json)",
                         data=json_str,
                         file_name=file_name,
                         mime="application/json",
+                        type="primary",
                         use_container_width=True
                     )
             
-                st.warning("⚠️ El workflow fue diseñado, pero la inyección automática no está disponible.")
+            else:
                 st.download_button(
-                    label="📥 Descargar JSON para Importación Manual",
+                    label="📥 Descargar Workflow (.json)",
                     data=json_str,
                     file_name=file_name,
                     mime="application/json",
+                    type="primary",
                     use_container_width=True
                 )
 
