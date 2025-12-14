@@ -6,9 +6,33 @@ import re  # <--- IMPORTANTE: Necesario para el Humanizador
 
 logger = logging.getLogger(__name__)
 
-# --- 1. BUILDER (Updated v7.1) ---
-def build_nodes_from_plan(logical_plan, knowledge_base_memory):
-    logger.info("🏗️ Builder v7.1: Construyendo estructura sanitizada...")
+# --- 1. BUILDER (Updated v8.0 - Mock Data) ---
+def generate_mock_data(user_prompt, node_type, model):
+    """
+    Genera datos de prueba realistas ("pinnedData") para el nodo Trigger.
+    """
+    try:
+        prompt = (
+            f"Actúa como un Mock Data Generator para n8n. "
+            f"El usuario quiere este workflow: '{user_prompt}'. "
+            f"El primer nodo es de tipo '{node_type}'. "
+            f"Genera un objeto JSON con datos de prueba REALISTAS que este nodo recibiría. "
+            f"Si es un Webhook, inventa un payload con campos lógicos (nombre, email, id, etc). "
+            f"Si es Google Sheets, inventa una fila. "
+            f"Devuelve SOLO el JSON RAW sin markdown ni explicaciones."
+        )
+        response = model.generate_content(prompt)
+        text = response.text.strip().replace('```json', '').replace('```', '')
+        data = json.loads(text)
+        
+        # Estructura n8n pinnedData estándar
+        return { "json": data }
+    except Exception as e:
+        logger.warning(f"⚠️ Falló generación de Mock Data: {e}")
+        return None
+
+def build_nodes_from_plan(logical_plan, knowledge_base_memory, user_prompt=None, model=None):
+    logger.info("🏗️ Builder v8.0: Construyendo estructura con Mock Data...")
     if not isinstance(logical_plan, list):
         return [], {}
 
@@ -19,6 +43,9 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
     def process_plan_recursive(plan, parent_node_name=None, forced_index=None):
         nonlocal node_counts
         last_node_in_chain = parent_node_name 
+        
+        # Flag para identificar el PRIMER nodo absoluto del plan principal
+        is_first_node_global = (parent_node_name is None)
 
         for i, step in enumerate(plan):
             node_id = step.get('nodeId')
@@ -69,6 +96,14 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory):
             params = node_template.get('parameters', {})
             params.update(step.get('parameters', {}))
             node_template['parameters'] = params
+            
+            # --- [NUEVO] MOCK DATA INJECTION ---
+            # Solo si es el primer nodo absoluto y tenemos modelo e prompt
+            if is_first_node_global and i == 0 and user_prompt and model:
+                mock_data = generate_mock_data(user_prompt, node_id, model)
+                if mock_data:
+                    node_template['pinnedData'] = mock_data
+                    logger.info(f"💉 Mock Data inyectada en {current_node_name}")
             
             nodes.append(node_template)
 

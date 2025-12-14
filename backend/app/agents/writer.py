@@ -26,7 +26,9 @@ def agent_technical_writer(nodes, user_request, model):
     nodes_summary = ""
     for n in complex_nodes:
         params_snippet = str(n.get("parameters", {}))[:300] 
-        nodes_summary += f"ID: {n.get('id')} | TIPO: {n.get('type')} | NOMBRE: {n.get('name')} | PARAMS: {params_snippet}\n---\n"
+        # Detectar si tiene pinnedData (Mock Data)
+        has_mock_data = "True" if n.get("pinnedData") else "False"
+        nodes_summary += f"ID: {n.get('id')} | TIPO: {n.get('type')} | NOMBRE: {n.get('name')} | MOCK_DATA: {has_mock_data} | PARAMS: {params_snippet}\n---\n"
 
     if not nodes_summary:
         return nodes, "" # <--- Retornamos tupla vacía
@@ -60,6 +62,9 @@ def agent_technical_writer(nodes, user_request, model):
         f"- [ ] **Campo [Nombre]:** [Valor a poner o Instrucción Clara]\n"
         f"- [ ] **Opciones:** [Marcar X o Y]\n"
         f"**🔑 Credenciales:** [Nombre de la cuenta a conectar o 'N/A']\n"
+        f"**⚠️ IMPORTANTE (Solo si MOCK_DATA es True para este nodo):**\n"
+        f"Añade EXACTAMENTE este texto al final de su sección:\n"
+        f"> '🧪 **Test Rápido:** Este nodo incluye datos de prueba (Mock Data). Puedes presionar el botón \"Execute Workflow\" en n8n directamente para probar la lógica sin necesidad de enviar datos reales desde fuera.'\n"
         f"---\n"
     )
 

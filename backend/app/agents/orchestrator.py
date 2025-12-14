@@ -56,8 +56,8 @@ async def stream_generation_pipeline(user_prompt: str):
 
         # 3. BUILDER
         yield "Paso 3: Construyendo nodos... 🔨\n"
-        nodes, connections = build_nodes_from_plan(logical_plan, kb_memory)
-        yield f"   -> Estructura creada con {len(nodes)} nodos.\n"
+        nodes, connections = build_nodes_from_plan(logical_plan, kb_memory, user_prompt, model)
+        yield f"   -> Estructura creada con {len(nodes)} nodos (Mock Data Inyectada).\n"
 
         # 4. WRITER
         yield "Paso 4: Redactando documentación... 📝\n"
