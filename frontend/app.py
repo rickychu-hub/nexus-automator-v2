@@ -396,7 +396,6 @@ def display_message(message):
                         use_container_width=True
                     )
             
-            else:
                 st.warning("⚠️ El workflow fue diseñado, pero la inyección automática no está disponible.")
                 st.download_button(
                     label="📥 Descargar JSON para Importación Manual",
@@ -405,6 +404,13 @@ def display_message(message):
                     mime="application/json",
                     use_container_width=True
                 )
+
+        # NUEVO: Renderizar Guía de Configuración (Spec-Sheet)
+        guide = message.get("guide", "")
+        if guide:
+            with st.expander("🛠️ Guía de Configuración Manual (Spec-Sheet)", expanded=False):
+                st.markdown(guide)
+                st.info("💡 Copia las expresiones de 'Data Path' tal cual aparecen para evitar errores.")
 
 def handle_user_input(user_input):
     if isinstance(user_input, dict):
@@ -538,6 +544,7 @@ def main_app():
                         api_resp = json.loads(final_json)
                         wf_obj = api_resp.get("workflow_json")
                         summary = api_resp.get("executive_summary", "")
+                        guide = api_resp.get("node_configuration_guide", "") # <--- NUEVO
 
                         # Debug opcional
                         with st.expander("🔍 PAYLOAD RECIBIDO DEL BACKEND (RAW)", expanded=False):
@@ -549,7 +556,8 @@ def main_app():
                             "role": "assistant",
                             "content": f"✅ ¡Hecho!\n\n> {summary}",
                             "workflow_json": wf_obj,
-                            "briefing": st.session_state.final_briefing
+                            "briefing": st.session_state.final_briefing,
+                            "guide": guide # <--- NUEVO
                         })
                         complete = True
                     else:
