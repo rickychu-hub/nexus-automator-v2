@@ -4,10 +4,12 @@
 import streamlit as st
 import requests
 import json
+import json
 import os
 import logging
 import time
 import re
+import datetime # <--- Need this for KPI calculation
 import unicodedata
 import pandas as pd
 from supabase import create_client, Client
@@ -587,13 +589,28 @@ def main_app():
         st.header("♻️ Optimizador & Refactorización")
         st.markdown("Sube un workflow existente (.json) y describe qué cambios quieres hacer. El Arquitecto mantendrá la estructura intacta.")
         
+        # --- LÓGICA DE REPARACIÓN (BRIDGE DESDE MONITORIZACIÓN) ---
+        pre_filled_instructions = ""
+        jump_start_file = None
+        
+        if "remix_prompt" in st.session_state:
+            pre_filled_instructions = st.session_state.pop("remix_prompt")
+            st.info(f"🔧 Modo de Reparación Activado: Instrucciones cargadas desde incidente.")
+        
+        # En el futuro podríamos pre-cargar el archivo si lo tuviéramos en DB
+        # if "remix_json" in st.session_state: ...
+
         uploaded_file = st.file_uploader("Sube tu archivo JSON", type=["json"])
         if uploaded_file:
             st.success("✅ Workflow cargado correctamente.")
             
             # Formulario de instrucciones
             with st.form("refactor_form"):
-                instructions = st.text_area("Instrucciones de cambio (ej: 'Cambia Slack por Discord', 'Añade un filtro de precio > 100')", height=100)
+                instructions = st.text_area(
+                    "Instrucciones de cambio (ej: 'Cambia Slack por Discord', 'Añade un filtro de precio > 100')", 
+                    value=pre_filled_instructions,
+                    height=100
+                )
                 submitted = st.form_submit_button("🚀 Refactorizar Workflow")
                 
                 if submitted and instructions:
@@ -642,28 +659,113 @@ def main_app():
                         st.error(f"Fallo durante el refactor: {str(e)}")
 
     with tab_monitor:
-        st.header("Estado del Sistema")
+        st.header("📡 Dashboard de Observabilidad")
+        
         if not supabase:
             st.warning("⚠️ Monitorización desactivada: Credenciales no encontradas.")
         else:
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                if st.button("🔄 Actualizar Logs", use_container_width=True): st.rerun()
+            col_act, col_spacer = st.columns([1, 5])
+            with col_act:
+                if st.button("🔄 Actualizar Datos"): st.rerun()
             
             try:
-                res = supabase.table('execution_logs').select("*").order('created_at', desc=True).limit(50).execute()
+                # PASO 1: OBTENCIÓN DE DATOS
+                res = supabase.table('execution_logs').select("*").order('created_at', desc=True).limit(200).execute()
+                
                 if res.data:
                     df = pd.DataFrame(res.data)
-                    col1, col2 = st.columns(2)
-                    col1.metric("Errores", df[df['status'] == 'error'].shape[0])
-                    col2.metric("Logs", df.shape[0])
                     
-                    def color_status(val): return f'color: {"#ff4b4b" if val == "error" else "#00cc99"}; font-weight: bold'
-                    st.dataframe(df.style.map(color_status, subset=['status']), use_container_width=True, hide_index=True)
+                    # Conversión de Tipos
+                    if 'created_at' in df.columns:
+                        df['created_at'] = pd.to_datetime(df['created_at'])
+
+                    # PASO 2: KPIs (Top of Page)
+                    total_runs = len(df)
+                    success_runs = df[df['status'] != 'error'].shape[0]
+                    failed_runs = df[df['status'] == 'error'].shape[0]
+                    success_rate = (success_runs / total_runs) * 100 if total_runs > 0 else 0
+                    
+                    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                    kpi1.metric("Total Ejecuciones", total_runs)
+                    kpi2.metric("Tasa de Éxito", f"{success_rate:.1f}%", delta_color="normal" if success_rate > 90 else "inverse")
+                    kpi3.metric("Fallos Críticos", failed_runs, delta_color="inverse")
+                    
+                    st.divider()
+                    
+                    # PASO 3: TABLA INTERACTIVA
+                    st.subheader("📜 Historial de Logs")
+                    
+                    st.dataframe(
+                        df,
+                        column_config={
+                            "status": st.column_config.TextColumn(
+                                "Estado",
+                                width="small",
+                                help="Estado de la ejecución"
+                            ),
+                            "workflow_name": st.column_config.TextColumn(
+                                "Workflow",
+                                width="medium"
+                            ),
+                            "created_at": st.column_config.DatetimeColumn(
+                                "Fecha",
+                                format="D MMM, HH:mm",
+                                width="small"
+                            ),
+                            "ai_diagnosis": None,  # Ocultar
+                            "suggested_fix": None, # Ocultar
+                            "error_message": None, # Ocultar
+                            "prompt_text": None,   # Ocultar
+                            "metadata": None,
+                            "id": None
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                    
+                    # PASO 4: INSPECTOR DE INCIDENTES
+                    st.divider()
+                    st.subheader("🔍 Inspector de Incidentes")
+                    
+                    errors_df = df[df['status'] == 'error']
+                    
+                    if not errors_df.empty:
+                        # Crear opciones legibles
+                        options_map = {
+                            row['id']: f"⚠️ {row['workflow_name']} ({row['created_at'].strftime('%H:%M')}) - ID: {str(row['id'])[:8]}" 
+                            for _, row in errors_df.iterrows()
+                        }
+                        
+                        selected_id = st.selectbox(
+                            "Selecciona un workflow fallido para analizar:",
+                            options=list(options_map.keys()),
+                            format_func=lambda x: options_map[x]
+                        )
+                        
+                        if selected_id:
+                            record = errors_df[errors_df['id'] == selected_id].iloc[0]
+                            
+                            c1, c2, c3 = st.columns(3)
+                            with c1: st.info(f"🤖 **Diagnóstico AI**\n\n{record.get('ai_diagnosis', 'N/A')}")
+                            with c2: st.warning(f"🔧 **Solución Sugerida**\n\n{record.get('suggested_fix', 'N/A')}")
+                            with c3:
+                                st.markdown("**⚙️ Acciones**")
+                                if st.button("🛠️ Cargar en Optimizador (Reparar)", key=f"btn_repair_{selected_id}"):
+                                    # PASO DE REPARACIÓN
+                                    st.session_state['remix_prompt'] = f"Soluciona este error: {record.get('suggested_fix')}"
+                                    # En el futuro: st.session_state['remix_json'] = record.get('workflow_json')
+                                    st.success("✅ Incidente cargado en Optimizador. Ve a la pestaña '♻️ Optimizador' para aplicar la solución.")
+                            
+                            st.markdown("### 📜 Log Técnico")
+                            st.code(record.get('error_message', 'No logs'), language="text")
+                    else:
+                        st.success("🎉 No hay incidentes recientes que requieran atención.")
+
                 else:
-                    st.info("Sin actividad reciente.")
+                    st.info("La base de datos de logs está vacía.")
             except Exception as e:
-                st.error(f"Error DB: {e}")
+                st.error(f"Error cargando Dashboard: {e}") 
+
 
 if __name__ == "__main__":
     if not st.session_state.authenticated:
