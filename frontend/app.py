@@ -172,6 +172,13 @@ def load_custom_css():
         
         /* Ajustes Streamlit */
         .stCode { font-family: 'Fira Code', monospace !important; }
+        
+        /* Pestañas más grandes y legibles */
+        .stTabs [data-baseweb="tab-list"] button {
+            font-size: 1.2rem;
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -586,7 +593,9 @@ def main_app():
                 st.rerun()
 
     with tab_remix:
-        st.header("♻️ Optimizador & Refactorización")
+        # Header redundante oculto (ya está en la Tab)
+        # st.header("♻️ Optimizador & Refactorización")
+        st.markdown("### 🛠️ Centro de Control de Refactorización") # Título más sutil if needed
         st.markdown("Sube un workflow existente (.json) y describe qué cambios quieres hacer. El Arquitecto mantendrá la estructura intacta.")
         
         # --- LÓGICA DE REPARACIÓN (BRIDGE DESDE MONITORIZACIÓN) ---
@@ -745,18 +754,36 @@ def main_app():
                         if selected_id:
                             record = errors_df[errors_df['id'] == selected_id].iloc[0]
                             
+                            ai_diag = record.get('ai_diagnosis')
+                            suggested_fix = record.get('suggested_fix')
+                            
                             c1, c2, c3 = st.columns(3)
-                            with c1: st.info(f"🤖 **Diagnóstico AI**\n\n{record.get('ai_diagnosis', 'N/A')}")
-                            with c2: st.warning(f"🔧 **Solución Sugerida**\n\n{record.get('suggested_fix', 'N/A')}")
+                            
+                            with c1: 
+                                st.markdown("**🤖 Diagnóstico AI**")
+                                if ai_diag:
+                                    st.info(ai_diag)
+                                else:
+                                    st.warning("⚠️ Diagnóstico pendiente. Usa 'Reparar' para analizar.")
+
+                            with c2: 
+                                st.markdown("**🔧 Solución Sugerida**")
+                                if suggested_fix:
+                                    st.success(suggested_fix)
+                                else:
+                                    st.caption("No disponible.")
+                            
                             with c3:
                                 st.markdown("**⚙️ Acciones**")
                                 if st.button("🛠️ Cargar en Optimizador (Reparar)", key=f"btn_repair_{selected_id}"):
-                                    # PASO DE REPARACIÓN
-                                    st.session_state['remix_prompt'] = f"Soluciona este error: {record.get('suggested_fix')}"
-                                    # En el futuro: st.session_state['remix_json'] = record.get('workflow_json')
-                                    st.success("✅ Incidente cargado en Optimizador. Ve a la pestaña '♻️ Optimizador' para aplicar la solución.")
-                            
-                            st.markdown("### 📜 Log Técnico")
+                                    # PASO DE REPARACIÓN (FIXED)
+                                    fix_text = suggested_fix if suggested_fix else (ai_diag if ai_diag else "Analizar error desconocido")
+                                    st.session_state['remix_prompt'] = f"Soluciona este error: {fix_text}"
+                                    
+                                    # Toast Notification
+                                    st.toast("✅ Instrucciones copiadas. Por favor, sube el archivo JSON en la pestaña 'Optimizador'.", icon='🛠️')
+
+                            st.markdown("### 📜 Log Técnico Original (n8n)")
                             st.code(record.get('error_message', 'No logs'), language="text")
                     else:
                         st.success("🎉 No hay incidentes recientes que requieran atención.")

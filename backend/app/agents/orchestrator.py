@@ -130,6 +130,15 @@ async def stream_generation_pipeline(user_prompt: str):
         except Exception as e:
             # Fallback por si falla la IA
             smart_title = f"Nexus.OS :: Workflow Automatizado ({user_prompt[:20]}...)"
+        
+        # [FIX] Sincronización de Nombres
+        # Forzamos que el JSON tenga el nombre inteligente para que al importar en n8n salga bien
+        if final_json_obj and isinstance(final_json_obj, dict):
+            final_json_obj['name'] = smart_title
+            # Tambien inyectamos en meta por si acaso
+            if 'meta' not in final_json_obj: final_json_obj['meta'] = {}
+            final_json_obj['meta']['smart_title'] = smart_title
+            logger.info(f"✅ Nombre del JSON actualizado a: {smart_title}")
 
         # ==============================================================================
 
