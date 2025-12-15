@@ -6,11 +6,65 @@ import re  # <--- IMPORTANTE: Necesario para el Humanizador
 
 logger = logging.getLogger(__name__)
 
-# --- 1. BUILDER (Updated v8.0 - Mock Data) ---
+
+# --- PYTHON SCAFFOLDING (HARD CONSTRAINT) ---
+PYTHON_SCAFFOLD = """
+# --- PREPARACIÓN ---
+try:
+    input_items = _input.all()
+except:
+    input_items = []
+output_items = []
+logs = [] # Logger en banda para debug
+for item in input_items:
+    try:
+        # Extracción segura
+        json_data = item.get('json', {})
+        
+        # === ZONA DE LÓGICA GENERADA POR IA ===
+        {logic_block}
+        # ======================================
+        
+        # Reconstrucción del objeto de salida
+        new_item = {'json': json_data}
+        if 'binary' in item:
+            new_item['binary'] = item['binary']
+        
+        # Inyección de logs si hubo cambios
+        if logs:
+            new_item['json']['_debug_logs'] = logs
+            
+        output_items.append(new_item)
+        
+    except Exception as e:
+        # Captura de error por ítem sin romper el flujo
+        logs.append(f"Error en item: str(e)")
+        output_items.append({'json': {'error': str(e), '_original': json_data}})
+return output_items
+"""
+
+# --- 1. BUILDER (Updated v8.0 - Mock Data & Python Logic) ---
+def generate_python_code(purpose, model):
+    """
+    Genera el bloque lógico de Python para insertar en el scaffolding.
+    """
+    try:
+        prompt = (
+            f"Gereera SOLO el código Python para esta lógica: '{purpose}'. "
+            f"REGLA 1: Usa SIEMPRE sintaxis de diccionario: row['clave'] (NO row.clave). "
+            f"REGLA 2: Asume que 'json_data' es la fila actual. Modifícalo directamente o añade claves. "
+            f"REGLA 3: Si necesitas filtrar, usa 'continue' para saltar el item. "
+            f"REGLA 4: NO incluyas imports ni bloques try/except externos (ya están en el scaffold). "
+            f"REGLA 5: Devuelve SOLO el código, sin markdown ```python```."
+        )
+        response = model.generate_content(prompt)
+        code = response.text.strip().replace('```python', '').replace('```', '')
+        return code
+    except Exception as e:
+        logger.warning(f"⚠️ Falló generación de Python Code: {e}")
+        return "# Error generando código. Revisa el prompt."
+
 def generate_mock_data(user_prompt, node_type, model):
-    """
-    Genera datos de prueba realistas ("pinnedData") para el nodo Trigger.
-    """
     try:
         prompt = (
             f"Actúa como un Mock Data Generator para n8n. "
@@ -97,6 +151,7 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory, user_prompt=None,
             params.update(step.get('parameters', {}))
             node_template['parameters'] = params
             
+
             # --- [NUEVO] MOCK DATA INJECTION ---
             # Solo si es el primer nodo absoluto y tenemos modelo e prompt
             if is_first_node_global and i == 0 and user_prompt and model:
@@ -105,6 +160,25 @@ def build_nodes_from_plan(logical_plan, knowledge_base_memory, user_prompt=None,
                     node_template['pinnedData'] = mock_data
                     logger.info(f"💉 Mock Data inyectada en {current_node_name}")
             
+            # --- [NUEVO] GENERACIÓN ROBUSTA DE PYTHON ---
+            if node_id == "n8n-nodes-base.code":
+                # Configuración Hard Codeada requerida
+                node_template['typeVersion'] = 2
+                params['language'] = "python" 
+                params['mode'] = "runOnceForAllItems"
+                
+                # Generación de la Lógica (si hay modelo)
+                if model:
+                    logic_code = generate_python_code(node_template['purpose'], model)
+                    # Indentación (4 espacios) para que encaje en el Scaffold
+                    indented_logic = "\n        ".join(logic_code.splitlines())
+                    full_code = PYTHON_SCAFFOLD.replace("{logic_block}", indented_logic)
+                    params['pythonCode'] = full_code
+                else:
+                    params['pythonCode'] = "# Falta el modelo de IA para generar código."
+                
+                logger.info(f"🐍 Python Node '{current_node_name}' configurado")
+
             nodes.append(node_template)
 
             # Lógica de conexión (Cableado)

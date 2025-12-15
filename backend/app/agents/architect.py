@@ -84,3 +84,41 @@ def agent_architect(investigation_results, user_request, knowledge_base_memory, 
     except Exception as e:
         logger.error(f"❌ Error en Arquitecto V12: {e}", exc_info=True)
         return None
+
+def refactor_workflow(current_json: dict, user_instructions: str, model) -> dict:
+    """
+    Agente de Mantenimiento: Recibe un workflow existente y aplica cambios quirúrgicos.
+    """
+    logger.info("♻️ Iniciando Refactorización de Workflow...")
+    
+    # Serializamos para que la IA lo lea
+    json_str = json.dumps(current_json, indent=2)
+    
+    prompt = (
+        f"Actúa como un Ingeniero de Mantenimiento de n8n experto. "
+        f"INPUT: Aquí tienes un workflow JSON existente:\n{json_str}\n\n"
+        f"INSTRUCCIONES DE CAMBIO: '{user_instructions}'\n\n"
+        f"REGLAS DE ORO (Hard Constraints):\n"
+        f"1. Preservación Quirúrgica: NO cambies posiciones (X, Y), nombres ni parámetros que no te hayan pedido tocar.\n"
+        f"2. Integridad de Conexiones: Si cambias un nodo, mantén las conexiones (inputs/outputs) intactas. "
+        f"Si eliminas uno, reconecta el anterior con el siguiente.\n"
+        f"3. IDs: Mantén los UUIDs originales siempre que sea posible para no romper referencias.\n"
+        f"4. OUTPUT: Devuelve SOLO el JSON completo y válido corregido. Sin markdown.\n"
+    )
+    
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip().replace('```json', '').replace('```', '')
+        
+        # Validar que sea JSON
+        new_json = json.loads(text)
+        
+        # Inyectar metadata de refactor
+        if "meta" not in new_json: new_json["meta"] = {}
+        new_json["meta"]["last_refactor"] = f"AI Refactor: {user_instructions[:50]}"
+        
+        return new_json
+        
+    except Exception as e:
+        logger.error(f"❌ Error en Refactor: {e}")
+        return current_json # Fallback seguro: devolver el original

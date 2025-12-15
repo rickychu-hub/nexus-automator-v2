@@ -24,6 +24,7 @@ USERS_DB = {
 # URLs del Backend y Servicios
 INTERVIEW_URL = os.getenv("INTERVIEW_URL", "http://localhost:8000/interview/")
 GENERATION_URL = os.getenv("GENERATION_URL", "http://localhost:8000/create-workflow-streaming/")
+REFACTOR_URL = os.getenv("REFACTOR_URL", "http://localhost:8000/refactor-workflow/") # <--- NUEVO
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "https://n8n-motor.onrender.com")
 
 # Supabase
@@ -436,7 +437,7 @@ def main_app():
     st.markdown("Tu Co-Piloto de automatización con **IA + n8n**. Describe un proceso y generaremos un workflow completo.", unsafe_allow_html=True)
     st.markdown("---")
 
-    tab_assistant, tab_monitor = st.tabs(["🤖 Asistente", "📊 Monitorización"])
+    tab_assistant, tab_remix, tab_monitor = st.tabs(["🤖 Asistente", "♻️ Optimizador / Remix", "📊 Monitorización"])
 
     with tab_assistant:
         main_ui = st.empty()
@@ -579,6 +580,66 @@ def main_app():
                 st.session_state.final_briefing = ""
                 time.sleep(1)
                 st.rerun()
+
+                st.rerun()
+
+    with tab_remix:
+        st.header("♻️ Optimizador & Refactorización")
+        st.markdown("Sube un workflow existente (.json) y describe qué cambios quieres hacer. El Arquitecto mantendrá la estructura intacta.")
+        
+        uploaded_file = st.file_uploader("Sube tu archivo JSON", type=["json"])
+        if uploaded_file:
+            st.success("✅ Workflow cargado correctamente.")
+            
+            # Formulario de instrucciones
+            with st.form("refactor_form"):
+                instructions = st.text_area("Instrucciones de cambio (ej: 'Cambia Slack por Discord', 'Añade un filtro de precio > 100')", height=100)
+                submitted = st.form_submit_button("🚀 Refactorizar Workflow")
+                
+                if submitted and instructions:
+                    try:
+                        # Leer y preparar el JSON
+                        raw_json = json.load(uploaded_file)
+                        
+                        with st.spinner("👷 El Arquitecto está trabajando en los cambios..."):
+                            # Llamada al backend
+                            payload = {"workflow_json": raw_json, "instructions": instructions}
+                            response = requests.post(REFACTOR_URL, json=payload, timeout=60)
+                            response.raise_for_status()
+                            result = response.json()
+                            
+                            if result.get("status") == "success":
+                                st.balloons()
+                                
+                                # Simular estructura de mensaje para reutilizar display_message
+                                # O simplemente mostrarlo aquí directo
+                                output_data = result.get("workflow_json")
+                                summary = result.get("executive_summary")
+                                
+                                st.markdown("### Resultado del Refactor")
+                                st.markdown(summary)
+                                
+                                # Tarjeta de descarga
+                                file_name = f"refactor_{int(time.time())}.json"
+                                json_str = json.dumps(output_data, indent=2)
+                                
+                                st.download_button(
+                                    label="📥 Descargar Workflow Refactorizado",
+                                    data=json_str,
+                                    file_name=file_name,
+                                    mime="application/json",
+                                    type="primary",
+                                    use_container_width=True
+                                )
+                                
+                                with st.expander("🔍 Ver JSON Diferencial (Debug)"):
+                                    st.json(output_data)
+                                    
+                            else:
+                                st.error(f"Error en backend: {result.get('message')}")
+                                
+                    except Exception as e:
+                        st.error(f"Fallo durante el refactor: {str(e)}")
 
     with tab_monitor:
         st.header("Estado del Sistema")

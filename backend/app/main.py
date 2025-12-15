@@ -13,7 +13,9 @@ from app.services.database_service import init_supabase, save_execution_log
 from app.services.chroma_service import init_chroma_client, get_collections, hydrate_knowledge_base
 from app.agents.interviewer import agent_interviewer
 from app.agents.orchestrator import stream_generation_pipeline
+from app.agents.orchestrator import stream_generation_pipeline
 from app.agents.debugger import analyze_error
+from app.agents.architect import refactor_workflow  # <--- NUEVO IMPORT
 
 # --- CONFIGURACIÓN DE LOGGING ---
 logging.basicConfig(level=logging.INFO)
@@ -48,7 +50,12 @@ class ErrorReport(BaseModel):
     workflow_name: str
     error_message: str
     workflow_json: dict = None # Contexto opcional para que la IA entienda
+    workflow_json: dict = None # Contexto opcional para que la IA entienda
     execution_id: str = None
+
+class RefactorRequest(BaseModel):
+    workflow_json: dict
+    instructions: str
 
 # --- EVENTOS DE INICIO ---
 @app.on_event("startup")
@@ -151,3 +158,31 @@ async def handle_n8n_error(report: ErrorReport):
     )
 
     return {"status": "recorded", "ai_feedback": diagnosis}
+
+@app.post("/refactor-workflow/")
+async def handle_refactor_workflow(request: RefactorRequest):
+    """
+    Endpoint para Remix & Refactor: Recibe un JSON y instrucciones, devuelve el JSON modificado.
+    """
+    logger.info(f"♻️ Refactor solicitado: '{request.instructions[:30]}...'")
+    try:
+        model = genai.GenerativeModel(settings.GENERATIVE_MODEL)
+        
+        # Llamamos al Arquitecto
+        new_json = refactor_workflow(request.workflow_json, request.instructions, model)
+        
+        # Generar un pequeño resumen del cambio (puedes pedirle a la IA, o hardcodearlo)
+        summary = f"Workflow refactorizado según: {request.instructions}"
+        
+        # Generar Spec-Sheet actualizado (Opcional, reutilizamos el Writer si quisiéramos)
+        # Por ahora devolvemos solo el JSON y un resumen simple.
+        
+        return {
+            "status": "success",
+            "workflow_json": new_json,
+            "executive_summary": f"✅ **Refactor Completado**\n\n> {summary}",
+            "node_configuration_guide": "" # Podríamos regenerarla si fuera necesario
+        }
+    except Exception as e:
+        logger.error(f"Error en Refactor: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
