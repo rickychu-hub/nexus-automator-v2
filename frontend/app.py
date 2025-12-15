@@ -678,8 +678,10 @@ def main_app():
                 if st.button("🔄 Actualizar Datos"): st.rerun()
             
             try:
-                # PASO 1: OBTENCIÓN DE DATOS
-                res = supabase.table('execution_logs').select("*").order('created_at', desc=True).limit(200).execute()
+                # 1. Fetch de Datos (Con campos detallados)
+                res = supabase.table('execution_logs').select(
+                    "id, workflow_name, status, created_at, duration_ms, error_message, ai_diagnosis, suggested_fix, workflow_json"
+                ).order('created_at', desc=True).limit(200).execute()
                 
                 if res.data:
                     df = pd.DataFrame(res.data)
@@ -687,6 +689,8 @@ def main_app():
                     # Conversión de Tipos
                     if 'created_at' in df.columns:
                         df['created_at'] = pd.to_datetime(df['created_at'])
+                    if 'duration_ms' not in df.columns:
+                        df['duration_ms'] = 0 # Fallback
 
                     # PASO 2: KPIs (Top of Page)
                     total_runs = len(df)
@@ -694,10 +698,21 @@ def main_app():
                     failed_runs = df[df['status'] == 'error'].shape[0]
                     success_rate = (success_runs / total_runs) * 100 if total_runs > 0 else 0
                     
+                    # Time Saved: Asumimos 5 min por workflow exitoso
+                    time_saved_min = success_runs * 5
+                    time_saved_str = f"{time_saved_min} min"
+                    if time_saved_min > 60:
+                        time_saved_str = f"{time_saved_min / 60:.1f} Horas"
+
+                    # Avg Duration
+                    avg_dur_ms = df['duration_ms'].mean()
+                    avg_dur_str = f"{avg_dur_ms/1000:.2f}s" if pd.notna(avg_dur_ms) else "N/A"
+
                     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
                     kpi1.metric("Total Ejecuciones", total_runs)
                     kpi2.metric("Tasa de Éxito", f"{success_rate:.1f}%", delta_color="normal" if success_rate > 90 else "inverse")
-                    kpi3.metric("Fallos Críticos", failed_runs, delta_color="inverse")
+                    kpi3.metric("Tiempo Ahorrado ⏳", time_saved_str)
+                    kpi4.metric("Duración Promedio", avg_dur_str)
                     
                     st.divider()
                     
@@ -721,11 +736,14 @@ def main_app():
                                 format="D MMM, HH:mm",
                                 width="small"
                             ),
+                            "duration_ms": st.column_config.NumberColumn(
+                                "Ms",
+                                format="%d ms"
+                            ),
                             "ai_diagnosis": None,  # Ocultar
                             "suggested_fix": None, # Ocultar
                             "error_message": None, # Ocultar
-                            "prompt_text": None,   # Ocultar
-                            "metadata": None,
+                            "workflow_json": None, # Ocultar
                             "id": None
                         },
                         hide_index=True,
@@ -756,6 +774,7 @@ def main_app():
                             
                             ai_diag = record.get('ai_diagnosis')
                             suggested_fix = record.get('suggested_fix')
+                            wf_json_data = record.get('workflow_json')
                             
                             c1, c2, c3 = st.columns(3)
                             
@@ -776,12 +795,16 @@ def main_app():
                             with c3:
                                 st.markdown("**⚙️ Acciones**")
                                 if st.button("🛠️ Cargar en Optimizador (Reparar)", key=f"btn_repair_{selected_id}"):
-                                    # PASO DE REPARACIÓN (FIXED)
-                                    fix_text = suggested_fix if suggested_fix else (ai_diag if ai_diag else "Analizar error desconocido")
-                                    st.session_state['remix_prompt'] = f"Soluciona este error: {fix_text}"
+                                    # 1. Cargar Prompt de Reparación
+                                    fix_text = suggested_fix if suggested_fix else (ai_diag if ai_diag else record.get('error_message', 'Error desconocido'))
+                                    st.session_state['remix_prompt'] = f"Repara este error crítico: {fix_text}"
                                     
-                                    # Toast Notification
-                                    st.toast("✅ Instrucciones copiadas. Por favor, sube el archivo JSON en la pestaña 'Optimizador'.", icon='🛠️')
+                                    # 2. Cargar JSON si existe (FIX REAL)
+                                    if wf_json_data:
+                                        st.session_state['remix_json'] = wf_json_data # Guardamos en Session
+                                        st.toast("✅ Workflow y Error cargados en Optimizador.", icon='🛠️')
+                                    else:
+                                        st.toast("⚠️ Error cargado, pero falta el JSON del workflow.", icon='⚠️')
 
                             st.markdown("### 📜 Log Técnico Original (n8n)")
                             st.code(record.get('error_message', 'No logs'), language="text")
