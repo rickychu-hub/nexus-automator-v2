@@ -186,25 +186,16 @@ if authentication_status:
                 if recent_wfs:
                     for i, wf in enumerate(recent_wfs):
                         wf_name = wf.get('name', 'Sin Nombre')
-                        wf_json = wf.get('n8n_workflow_id') # Schema update
-                        wf_date = "Reciente" # Fecha no disponible por ahora
+                        wf_data = wf.get('n8n_workflow_id')
 
-                        # Visualización con Expander
-                        with st.expander(f"📄 {wf_name}"):
-                            st.caption(f"📅 {wf_date}")
-                            st.json(wf_json, expanded=False)
-
-                            # Validación y Botón de Descarga
-                            if wf_json:
-                                st.download_button(
-                                    label="📥 Descargar JSON",
-                                    data=json.dumps(wf_json, indent=2),
-                                    file_name=f"{wf_name}.json",
-                                    mime="application/json",
-                                    key=f"dl_btn_{i}"
-                                )
-                            else:
-                                st.warning("⚠️ JSON vacío")
+                        # Botón para restaurar al chat
+                        if st.button(f"📄 {wf_name}", key=f"hist_btn_{i}", use_container_width=True):
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": f"📂 **Workflow Restaurado:** {wf_name}\n\nAquí tienes el diseño recuperado de la biblioteca.",
+                                "workflow_json": wf_data
+                            })
+                            st.rerun()
                 else:
                     st.caption("📭 No hay workflows guardados en la DB.")
             except Exception as e:
