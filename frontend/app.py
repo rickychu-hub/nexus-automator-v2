@@ -164,14 +164,30 @@ if authentication_status:
         if supabase:
             try:
                 # Consultamos los últimos 5 workflows guardados
-                response = supabase.table('workflows').select("name, created_at").order('created_at', desc=True).limit(5).execute()
+                response = supabase.table('workflows').select("name, created_at, workflow_json").order('created_at', desc=True).limit(5).execute()
                 
                 if response.data:
-                    for wf in response.data:
+                    for i, wf in enumerate(response.data):
                         wf_name = wf.get('name', 'Sin Nombre')
-                        # Mostramos nombre y fecha
-                        st.markdown(f"📄 **{wf_name}**")
-                        st.caption(f"📅 {wf.get('created_at', '')[:10]}")
+                        wf_json = wf.get('workflow_json')
+                        wf_date = wf.get('created_at', '')[:10]
+
+                        # Visualización con Expander
+                        with st.expander(f"📄 {wf_name}"):
+                            st.caption(f"📅 {wf_date}")
+                            st.json(wf_json, expanded=False)
+
+                            # Validación y Botón de Descarga
+                            if wf_json:
+                                st.download_button(
+                                    label="📥 Descargar JSON",
+                                    data=json.dumps(wf_json, indent=2),
+                                    file_name=f"{wf_name}.json",
+                                    mime="application/json",
+                                    key=f"dl_btn_{i}"
+                                )
+                            else:
+                                st.warning("⚠️ JSON vacío")
                 else:
                     st.caption("📭 No hay workflows guardados en la DB.")
             except Exception:
