@@ -21,25 +21,39 @@ import sys
 st.set_page_config(page_title="Nexus OS", page_icon="⚡", layout="wide")
 logger = logging.getLogger(__name__)
 
-# --- HACK CRÍTICO DE RUTAS (Para importar backend) ---
+# --- HACK DE RUTAS (NIVEL: FUERZA BRUTA) 🦍 ---
+# 1. Localizamos dónde estamos (frontend)
 current_dir = os.path.dirname(os.path.abspath(__file__))
+# 2. Localizamos la raíz del proyecto (una carpeta atrás)
 root_dir = os.path.abspath(os.path.join(current_dir, '..'))
+# 3. Localizamos explícitamente la carpeta 'backend'
+backend_dir = os.path.join(root_dir, 'backend')
+
+# 4. AÑADIMOS TODO AL PATH (Sin pedir permiso)
 if root_dir not in sys.path:
     sys.path.append(root_dir)
+if backend_dir not in sys.path:
+    sys.path.append(backend_dir)
 
-# INTENTO DE IMPORTACIÓN ROBUSTO
+# Configuración básica de logs
+logging.basicConfig(level=logging.INFO)
+
+# --- IMPORTACIÓN A PRUEBA DE BOMBAS ---
+fetch_and_store_history = None 
+
 try:
-    # Intento 1: Estructura estándar
+    # OPCIÓN A: Ruta directa (gracias a sys.path.append(backend_dir))
     from app.services.n8n_sync import fetch_and_store_history
-except ImportError:
+except ImportError as e1:
     try:
-        # Intento 2: Estructura anidada (por si acaso)
+        # OPCIÓN B: Ruta completa estándar
         from backend.app.services.n8n_sync import fetch_and_store_history
-    except ImportError as e:
-        # Fallback para no romper la UI completa
-        error_msg = str(e) # <--- CAPTURAMOS EL TEXTO AQUÍ PARA QUE NO SE BORRE
-        logger.error(f"Error importando backend: {error_msg}")
-        def fetch_and_store_history(): return False, f"Error de importación: {error_msg}"
+    except ImportError as e2:
+        # SI TODO FALLA
+        error_msg = f"Ruta A: {e1} | Ruta B: {e2}"
+        logger.error(f"❌ ERROR CRÍTICO IMPORTANDO BACKEND: {error_msg}")
+        def fetch_and_store_history(): 
+            return False, f"⚠️ Error: {error_msg}"
 # --- 2. AUTENTICACIÓN (Persistente) ---
 # Hash para '369852147'
 hashed_passwords = stauth.Hasher(['369852147', 'demo123']).generate()
