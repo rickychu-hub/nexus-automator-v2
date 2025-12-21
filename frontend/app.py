@@ -160,6 +160,22 @@ if authentication_status:
         st.write(f"👤 **{name}**")
         authenticator.logout('Cerrar Sesión', 'sidebar')
         st.divider()
+        st.subheader("📂 Biblioteca")
+        if supabase:
+            try:
+                # Consultamos los últimos 5 workflows guardados
+                response = supabase.table('workflows').select("name, created_at").order('created_at', desc=True).limit(5).execute()
+                
+                if response.data:
+                    for wf in response.data:
+                        wf_name = wf.get('name', 'Sin Nombre')
+                        # Mostramos nombre y fecha
+                        st.markdown(f"📄 **{wf_name}**")
+                        st.caption(f"📅 {wf.get('created_at', '')[:10]}")
+                else:
+                    st.caption("📭 No hay workflows guardados en la DB.")
+            except Exception:
+                st.caption("⚠️ Error cargando historial.")
         if st.button("🗑️ Nuevo Chat", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
