@@ -143,7 +143,8 @@ def fetch_and_store_history_local():
 def fetch_recent_workflows():
     if not supabase: return []
     try:
-        response = supabase.table('workflows').select("name, created_at, workflow_json").order('created_at', desc=True).limit(5).execute()
+        # Schema Fix: Select only existing columns and remove potentially broken sort
+        response = supabase.table('workflows').select("name, n8n_workflow_id").limit(5).execute()
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching cached workflows: {e}")
@@ -185,8 +186,8 @@ if authentication_status:
                 if recent_wfs:
                     for i, wf in enumerate(recent_wfs):
                         wf_name = wf.get('name', 'Sin Nombre')
-                        wf_json = wf.get('workflow_json')
-                        wf_date = wf.get('created_at', '')[:10]
+                        wf_json = wf.get('n8n_workflow_id') # Schema update
+                        wf_date = "Reciente" # Fecha no disponible por ahora
 
                         # Visualización con Expander
                         with st.expander(f"📄 {wf_name}"):
