@@ -162,7 +162,7 @@ async def stream_generation_pipeline(user_prompt: str):
         final_output = {
             "workflow_json": final_json_obj,
             "executive_summary": summary_text,
-            "node_configuration_guide": guide_markdown 
+            "configuration_manual": guide_markdown 
         }
         
         yield json.dumps(final_output)

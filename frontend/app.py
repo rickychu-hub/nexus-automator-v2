@@ -418,10 +418,12 @@ def display_message(message):
                 )
 
         # NUEVO: Renderizar Guía de Configuración (Spec-Sheet)
-        guide = message.get("guide", "")
-        if guide:
+        # Prioridad: configuration_manual > guide
+        manual = message.get("configuration_manual") or message.get("guide", "")
+        
+        if manual:
             with st.expander("🛠️ Guía de Configuración Manual (Spec-Sheet)", expanded=False):
-                st.markdown(guide)
+                st.markdown(manual)
                 st.info("💡 Copia las expresiones de 'Data Path' tal cual aparecen para evitar errores.")
 
 def handle_user_input(user_input):
@@ -556,7 +558,8 @@ def main_app():
                         api_resp = json.loads(final_json)
                         wf_obj = api_resp.get("workflow_json")
                         summary = api_resp.get("executive_summary", "")
-                        guide = api_resp.get("node_configuration_guide", "") # <--- NUEVO
+                        # Priorizamos el manual personalizado
+                        config_manual = api_resp.get("configuration_manual") or api_resp.get("node_configuration_guide", "")
 
                         # Debug opcional
                         with st.expander("🔍 PAYLOAD RECIBIDO DEL BACKEND (RAW)", expanded=False):
@@ -569,7 +572,7 @@ def main_app():
                             "content": f"✅ ¡Hecho!\n\n> {summary}",
                             "workflow_json": wf_obj,
                             "briefing": st.session_state.final_briefing,
-                            "guide": guide # <--- NUEVO
+                            "configuration_manual": config_manual 
                         })
                         complete = True
                     else:
