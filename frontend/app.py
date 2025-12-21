@@ -1,5 +1,5 @@
 # frontend/app.py
-# VERSIÓN V8.4 - ALL IN ONE (Sin errores de importación)
+# VERSIÓN V8.5 - FULL RESTORE (Sync Local + Optimizador UI)
 
 import streamlit as st
 import streamlit_authenticator as stauth
@@ -23,6 +23,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- 2. CONFIGURACIÓN SUPABASE & N8N (Variables) ---
+# Intentamos leer ambas versiones de las variables para ser robustos
 INTERVIEW_URL = os.getenv("INTERVIEW_URL", "http://localhost:8000/interview/")
 GENERATION_URL = os.getenv("GENERATION_URL", "http://localhost:8000/create-workflow-streaming/")
 REFACTOR_URL = os.getenv("REFACTOR_URL", "http://localhost:8000/refactor-workflow/")
@@ -44,16 +45,22 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# --- 3. FUNCIÓN SYNC (INTEGRADA AQUÍ PARA EVITAR ERROR DE IMPORT) ---
+# --- 3. FUNCIÓN SYNC (INTEGRADA AQUÍ) ---
 def fetch_and_store_history_local():
     """
-    Versión local de la función de sincronización para evitar problemas de rutas.
+    Versión local de la función de sincronización.
     """
     if not N8N_HOST or not N8N_API_KEY:
-        return False, "❌ Faltan credenciales (N8N_HOST o N8N_API_KEY)"
+        # Debug: Mostrar qué falta para ayudar al usuario
+        missing = []
+        if not N8N_HOST: missing.append("N8N_HOST")
+        if not N8N_API_KEY: missing.append("N8N_API_KEY")
+        return False, f"❌ Faltan credenciales en Render: {', '.join(missing)}"
 
     # Endpoint de ejecuciones
-    url = f"{N8N_HOST}/api/v1/executions?limit=50&includeData=false"
+    # Aseguramos que el host no termine en barra duplicada
+    base_url = N8N_HOST.rstrip('/')
+    url = f"{base_url}/api/v1/executions?limit=50&includeData=false"
     headers = {"X-N8N-API-KEY": N8N_API_KEY}
 
     try:
@@ -66,16 +73,14 @@ def fetch_and_store_history_local():
             return True, "No se encontraron ejecuciones nuevas en n8n."
 
         if not supabase:
-            return False, "No hay conexión a Supabase."
+            return False, "Error: No hay conexión a Supabase (Revisa SUPABASE_URL/KEY)."
 
         count = 0
         for exc in executions:
-            # Mapeo de datos
             n8n_id = exc.get("id")
             wf_data = exc.get("workflowData", {})
             wf_name = wf_data.get("name") or "Unknown"
             
-            # Status logico
             status = exc.get("status")
             if not status:
                 if exc.get("finished") is False: status = "running"
@@ -85,7 +90,6 @@ def fetch_and_store_history_local():
             started_at = exc.get("startedAt")
             stopped_at = exc.get("stoppedAt")
             
-            # Calculo duración
             duration_ms = 0
             if started_at and stopped_at:
                 try:
@@ -102,7 +106,6 @@ def fetch_and_store_history_local():
                 "duration_ms": duration_ms
             }
 
-            # Upsert a Supabase
             try:
                 supabase.table("execution_logs").upsert(payload, on_conflict="n8n_execution_id").execute()
                 count += 1
@@ -148,13 +151,17 @@ if authentication_status:
     if "interview_history" not in st.session_state: st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
     if "stored_answers" not in st.session_state: st.session_state.stored_answers = {}
     if "final_briefing" not in st.session_state: st.session_state.final_briefing = ""
+    # State para el Optimizador
+    if "remix_prompt" not in st.session_state: st.session_state.remix_prompt = ""
 
-    # CSS
+    # CSS Global
     st.markdown("""
         <style>
         .stApp { background: linear-gradient(180deg, #0e1117 0%, #161b22 100%); color: #c9d1d9; }
         div[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
         .deploy-card { background-color: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-top: 10px; }
+        /* Ajuste para el file uploader */
+        div[data-testid="stFileUploader"] section { background-color: #161b22; border: 1px dashed #30363d; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -172,7 +179,7 @@ if authentication_status:
     
     tab_assistant, tab_remix, tab_monitor = st.tabs(["🤖 Asistente", "♻️ Optimizador", "📊 Monitorización"])
 
-    # --- TAB MONITORIZACIÓN (LA QUE DABA PROBLEMAS) ---
+    # --- TAB MONITORIZACIÓN ---
     with tab_monitor:
         st.header("📡 Observabilidad n8n")
         
@@ -180,7 +187,6 @@ if authentication_status:
         with col1:
             if st.button("🔄 Sincronizar Historial n8n"):
                 with st.spinner("Sincronizando..."):
-                    # LLAMADA A LA FUNCIÓN LOCAL (Cero imports)
                     success, msg = fetch_and_store_history_local()
                     if success:
                         st.success(msg)
@@ -194,7 +200,16 @@ if authentication_status:
                 res = supabase.table('execution_logs').select("*").order('created_at', desc=True).limit(50).execute()
                 if res.data:
                     df = pd.DataFrame(res.data)
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(
+                        df, 
+                        use_container_width=True,
+                        column_config={
+                            "status": st.column_config.TextColumn("Estado", width="small"),
+                            "created_at": st.column_config.DatetimeColumn("Fecha", format="D MMM, HH:mm"),
+                            "duration_ms": st.column_config.NumberColumn("Ms"),
+                            "workflow_name": "Workflow"
+                        }
+                    )
                 else:
                     st.info("No hay datos. Pulsa Sincronizar.")
             except Exception as e:
@@ -202,9 +217,8 @@ if authentication_status:
         else:
             st.warning("No hay conexión con Supabase.")
 
-    # --- TAB ASISTENTE (Lógica UI) ---
+    # --- TAB ASISTENTE ---
     with tab_assistant:
-        # Funciones helpers para el chat
         def handle_user_input(user_input):
             if isinstance(user_input, dict):
                 content = "\n".join(f"• {v}" for v in user_input.values())
@@ -231,7 +245,6 @@ if authentication_status:
                 st.info("💡 Describe un proceso...")
                 if p := st.chat_input("¿Qué automatizamos?"): handle_user_input(p)
 
-            # Lógica simplificada de entrevista/generación
             if st.session_state.conversation_state == "interviewing":
                 with st.spinner("🧠 Analizando..."):
                     try:
@@ -257,9 +270,46 @@ if authentication_status:
                     st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
 
+    # --- TAB OPTIMIZADOR (RESTAURADA) ---
     with tab_remix:
         st.header("♻️ Optimizador")
-        st.info("Sube tu JSON para optimizar.")
+        st.markdown("Sube un flujo de n8n existente para refactorizarlo o mejorarlo.")
+        
+        col_up, col_ins = st.columns([1, 1])
+        
+        with col_up:
+            uploaded_file = st.file_uploader("📂 Sube archivo JSON", type=["json"])
+        
+        with col_ins:
+            instructions = st.text_area("📝 Instrucciones de mejora", 
+                                      value=st.session_state.remix_prompt,
+                                      placeholder="Ej: Añade manejo de errores con Slack...")
+
+        if st.button("🚀 Refactorizar Workflow", type="primary", use_container_width=True):
+            if uploaded_file and instructions:
+                try:
+                    raw_json = json.load(uploaded_file)
+                    st.session_state.remix_prompt = instructions # Guardar estado
+                    
+                    with st.spinner("🔧 El Arquitecto está rediseñando el flujo..."):
+                        # Llamada real al backend
+                        payload = {"workflow_json": raw_json, "instructions": instructions}
+                        response = requests.post(REFACTOR_URL, json=payload, timeout=300)
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            new_wf = result.get("workflow_json")
+                            st.success("✅ ¡Refactorización completada!")
+                            st.json(new_wf, expanded=False)
+                            st.download_button("📥 Descargar JSON Optimizado", 
+                                             json.dumps(new_wf, indent=2), 
+                                             "workflow_optimizado.json")
+                        else:
+                            st.error(f"Error del servidor: {response.text}")
+                except Exception as e:
+                    st.error(f"Error procesando archivo: {e}")
+            else:
+                st.warning("⚠️ Por favor sube un archivo JSON y añade instrucciones.")
 
 elif authentication_status is False:
     st.error('Credenciales incorrectas')
