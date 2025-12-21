@@ -190,9 +190,25 @@ if authentication_status:
 
                         # Botón para restaurar al chat
                         if st.button(f"📄 {wf_name}", key=f"hist_btn_{i}", use_container_width=True):
+                            # 1. Limpiar historial
+                            st.session_state.messages = []
+                            
+                            # 2. Construir mensaje rico simulado
+                            rich_content = f"""
+### 📂 {wf_name}
+**Estado:** Recuperado de Biblioteca
+
+Aquí tienes el diseño recuperado.
+
+---
+**Siguientes Pasos:**
+1. Descarga el JSON.
+2. Impórtalo en tu n8n.
+3. Configura las credenciales.
+"""
                             st.session_state.messages.append({
                                 "role": "assistant",
-                                "content": f"📂 **Workflow Restaurado:** {wf_name}\n\nAquí tienes el diseño recuperado de la biblioteca.",
+                                "content": rich_content,
                                 "workflow_json": wf_data
                             })
                             st.rerun()
@@ -244,15 +260,29 @@ if authentication_status:
                 st.session_state.conversation_state = "interviewing"
                 st.rerun()
 
-        def display_message(msg):
+        def display_message(msg, i):
             with st.chat_message(msg["role"]):
                 try: st.markdown(json.loads(msg["content"]).get("executive_summary", msg["content"]))
                 except: st.markdown(msg["content"])
-                if msg.get("workflow_json"): st.download_button("📥 JSON", json.dumps(msg["workflow_json"], indent=2), "wf.json")
+                
+                if msg.get("workflow_json"):
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        st.download_button(
+                            label="📥 Descargar JSON",
+                            data=json.dumps(msg["workflow_json"], indent=2),
+                            file_name="workflow.json",
+                            mime="application/json",
+                            key=f"dl_{i}"
+                        )
+                    with c2:
+                        if N8N_HOST:
+                            st.link_button("🚀 Abrir n8n", N8N_HOST, key=f"lnk_{i}")
 
         main_ui = st.empty()
+        main_ui = st.empty()
         with main_ui.container():
-            for msg in st.session_state.messages: display_message(msg)
+            for i, msg in enumerate(st.session_state.messages): display_message(msg, i)
             if st.session_state.conversation_state == "waiting_for_prompt":
                 st.info("💡 Describe un proceso...")
                 if p := st.chat_input("¿Qué automatizamos?"): handle_user_input(p)
