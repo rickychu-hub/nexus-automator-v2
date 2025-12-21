@@ -1,5 +1,5 @@
 # frontend/app.py
-# VERSIÓN V8.2 - RESTAURACIÓN COMPLETA (IA + MONITORIZACIÓN + LOGIN)
+# VERSIÓN V8.4 - ALL IN ONE (Sin errores de importación)
 
 import streamlit as st
 import streamlit_authenticator as stauth
@@ -19,66 +19,114 @@ import sys
 
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="Nexus OS", page_icon="⚡", layout="wide")
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- HACK DE RUTAS (NIVEL: FUERZA BRUTA) 🦍 ---
-# 1. Localizamos dónde estamos (frontend)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# 2. Localizamos la raíz del proyecto (una carpeta atrás)
-root_dir = os.path.abspath(os.path.join(current_dir, '..'))
-# 3. Localizamos explícitamente la carpeta 'backend'
-backend_dir = os.path.join(root_dir, 'backend')
+# --- 2. CONFIGURACIÓN SUPABASE & N8N (Variables) ---
+INTERVIEW_URL = os.getenv("INTERVIEW_URL", "http://localhost:8000/interview/")
+GENERATION_URL = os.getenv("GENERATION_URL", "http://localhost:8000/create-workflow-streaming/")
+REFACTOR_URL = os.getenv("REFACTOR_URL", "http://localhost:8000/refactor-workflow/")
 
-# 4. AÑADIMOS TODO AL PATH (Sin pedir permiso)
-if root_dir not in sys.path:
-    sys.path.append(root_dir)
-if backend_dir not in sys.path:
-    sys.path.append(backend_dir)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+N8N_HOST = os.getenv("N8N_HOST") or os.getenv("N8N_BASE_URL")
+N8N_API_KEY = os.getenv("N8N_API_KEY")
 
-# Configuración básica de logs
-logging.basicConfig(level=logging.INFO)
-
-# --- IMPORTACIÓN A PRUEBA DE BOMBAS ---
-fetch_and_store_history = None 
-
-try:
-    # OPCIÓN A: Ruta directa (gracias a sys.path.append(backend_dir))
-    from app.services.n8n_sync import fetch_and_store_history
-except ImportError as e1:
+@st.cache_resource
+def init_supabase():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
     try:
-        # OPCIÓN B: Ruta completa estándar
-        from backend.app.services.n8n_sync import fetch_and_store_history
-    except ImportError as e2:
-        # SI TODO FALLA
-        error_msg = f"Ruta A: {e1} | Ruta B: {e2}"
-        logger.error(f"❌ ERROR CRÍTICO IMPORTANDO BACKEND: {error_msg}")
-        def fetch_and_store_history(): 
-            return False, f"⚠️ Error: {error_msg}"
-# --- 2. AUTENTICACIÓN (Persistente) ---
-# Hash para '369852147'
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        logger.error(f"Error Supabase: {e}")
+        return None
+
+supabase = init_supabase()
+
+# --- 3. FUNCIÓN SYNC (INTEGRADA AQUÍ PARA EVITAR ERROR DE IMPORT) ---
+def fetch_and_store_history_local():
+    """
+    Versión local de la función de sincronización para evitar problemas de rutas.
+    """
+    if not N8N_HOST or not N8N_API_KEY:
+        return False, "❌ Faltan credenciales (N8N_HOST o N8N_API_KEY)"
+
+    # Endpoint de ejecuciones
+    url = f"{N8N_HOST}/api/v1/executions?limit=50&includeData=false"
+    headers = {"X-N8N-API-KEY": N8N_API_KEY}
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        executions = data.get("data", [])
+        if not executions:
+            return True, "No se encontraron ejecuciones nuevas en n8n."
+
+        if not supabase:
+            return False, "No hay conexión a Supabase."
+
+        count = 0
+        for exc in executions:
+            # Mapeo de datos
+            n8n_id = exc.get("id")
+            wf_data = exc.get("workflowData", {})
+            wf_name = wf_data.get("name") or "Unknown"
+            
+            # Status logico
+            status = exc.get("status")
+            if not status:
+                if exc.get("finished") is False: status = "running"
+                elif exc.get("crashed") is True: status = "crashed"
+                else: status = "success"
+            
+            started_at = exc.get("startedAt")
+            stopped_at = exc.get("stoppedAt")
+            
+            # Calculo duración
+            duration_ms = 0
+            if started_at and stopped_at:
+                try:
+                    start_dt = datetime.datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                    stop_dt = datetime.datetime.fromisoformat(stopped_at.replace('Z', '+00:00'))
+                    duration_ms = int((stop_dt - start_dt).total_seconds() * 1000)
+                except: pass
+
+            payload = {
+                "n8n_execution_id": n8n_id,
+                "workflow_name": wf_name,
+                "status": status,
+                "created_at": started_at,
+                "duration_ms": duration_ms
+            }
+
+            # Upsert a Supabase
+            try:
+                supabase.table("execution_logs").upsert(payload, on_conflict="n8n_execution_id").execute()
+                count += 1
+            except Exception as e:
+                logger.warning(f"Error upserting {n8n_id}: {e}")
+
+        return True, f"✅ Sincronizadas {count} ejecuciones."
+
+    except Exception as e:
+        logger.error(f"Error sync n8n: {e}")
+        return False, f"Error conexión n8n: {str(e)}"
+
+# --- 4. AUTENTICACIÓN ---
 hashed_passwords = stauth.Hasher(['369852147', 'demo123']).generate()
 
 auth_config = {
     'credentials': {
         'usernames': {
-            'ricardochunas@gmail.com': {
-                'name': 'Ricardo Chunas',
-                'password': hashed_passwords[0]
-            },
-            'demo': {
-                'name': 'Demo User',
-                'password': hashed_passwords[1]
-            }
+            'ricardochunas@gmail.com': {'name': 'Ricardo Chunas', 'password': hashed_passwords[0]},
+            'demo': {'name': 'Demo User', 'password': hashed_passwords[1]}
         }
     },
-    'cookie': {
-        'expiry_days': 30,
-        'key': 'nexus_random_signature_key', 
-        'name': 'nexus_auth_cookie',
-    },
-    'pre-authorized': {
-        'emails': ['ricardochunas@gmail.com']
-    }
+    'cookie': {'expiry_days': 30, 'key': 'nexus_key_v8', 'name': 'nexus_auth'},
+    'pre-authorized': {'emails': ['ricardochunas@gmail.com']}
 }
 
 authenticator = stauth.Authenticate(
@@ -89,85 +137,27 @@ authenticator = stauth.Authenticate(
     auth_config['pre-authorized']
 )
 
-# --- 3. LOGIN ---
 name, authentication_status, username = authenticator.login('main')
 
+# --- 5. UI PRINCIPAL ---
 if authentication_status:
-    # =========================================================
-    #  APLICACIÓN PRINCIPAL (Solo visible si estás logueado)
-    # =========================================================
-
-    # --- CONFIGURACIÓN DE VARIABLES ---
-    INTERVIEW_URL = os.getenv("INTERVIEW_URL", "http://localhost:8000/interview/")
-    GENERATION_URL = os.getenv("GENERATION_URL", "http://localhost:8000/create-workflow-streaming/")
-    REFACTOR_URL = os.getenv("REFACTOR_URL", "http://localhost:8000/refactor-workflow/")
     
-    # Supabase (Definido aquí para evitar errores de importación externa)
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-    @st.cache_resource
-    def init_supabase():
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            return None
-        try:
-            return create_client(SUPABASE_URL, SUPABASE_KEY)
-        except Exception as e:
-            logger.error(f"Error Supabase: {e}")
-            return None
-
-    supabase = init_supabase()
-
-    # --- ESTADO DE LA SESIÓN (Chatbot) ---
+    # Session State
     if "messages" not in st.session_state: st.session_state.messages = []
     if "conversation_state" not in st.session_state: st.session_state.conversation_state = "waiting_for_prompt"
     if "interview_history" not in st.session_state: st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
     if "stored_answers" not in st.session_state: st.session_state.stored_answers = {}
     if "final_briefing" not in st.session_state: st.session_state.final_briefing = ""
 
-    # --- FUNCIONES AUXILIARES ---
-    def load_custom_css():
-        st.markdown("""
-            <style>
-            .stApp { background: linear-gradient(180deg, #0e1117 0%, #161b22 100%); color: #c9d1d9; }
-            div[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
-            .deploy-card { background-color: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-top: 10px; }
-            .status-badge { background-color: #238636; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
-            </style>
-        """, unsafe_allow_html=True)
-    load_custom_css()
+    # CSS
+    st.markdown("""
+        <style>
+        .stApp { background: linear-gradient(180deg, #0e1117 0%, #161b22 100%); color: #c9d1d9; }
+        div[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #30363d; }
+        .deploy-card { background-color: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 20px; margin-top: 10px; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    def generating_thoughts_formatter(text: str) -> str:
-        return text.replace("Investigator", "🕵️ **Investigator**").replace("Architect", "🏛️ **Architect**").replace("Builder", "🏗️ **Builder**")
-
-    def handle_user_input(user_input):
-        if isinstance(user_input, dict):
-            answers_text = "\n".join(f"• {v}" for v in user_input.values())
-            st.session_state.messages.append({"role": "user", "content": answers_text})
-        else:
-            st.session_state.messages.append({"role": "user", "content": user_input})
-
-        if st.session_state.conversation_state == "waiting_for_prompt":
-            prompt_text = user_input if isinstance(user_input, str) else answers_text
-            st.session_state.interview_history["original_prompt"] = prompt_text
-            st.session_state.final_briefing = prompt_text
-            st.session_state.conversation_state = "interviewing"
-            st.rerun()
-
-    def display_message(message):
-        with st.chat_message(message["role"]):
-            content = message["content"]
-            try:
-                parsed = json.loads(content)
-                st.markdown(parsed.get("executive_summary", content))
-            except:
-                st.markdown(content)
-            
-            if message.get("workflow_json"):
-                st.download_button("📥 Descargar JSON", json.dumps(message["workflow_json"], indent=2), "workflow.json", "application/json")
-
-    # --- UI PRINCIPAL ---
-    
     # Sidebar
     with st.sidebar:
         st.write(f"👤 **{name}**")
@@ -180,97 +170,9 @@ if authentication_status:
 
     st.title("⚡ Nexus Automator OS")
     
-    # PESTAÑAS
     tab_assistant, tab_remix, tab_monitor = st.tabs(["🤖 Asistente", "♻️ Optimizador", "📊 Monitorización"])
 
-    # --- PESTAÑA 1: ASISTENTE ---
-    with tab_assistant:
-        main_ui = st.empty()
-        with main_ui.container():
-            for msg in st.session_state.messages:
-                display_message(msg)
-
-            if st.session_state.conversation_state == "waiting_for_prompt":
-                st.info("💡 Describe un proceso...")
-                if prompt := st.chat_input("¿Qué automatizamos hoy?"):
-                    handle_user_input(prompt)
-
-            if st.session_state.conversation_state == "waiting_for_answers":
-                if st.session_state.interview_history["questions"]:
-                    with st.chat_message("assistant"): st.markdown("🤔 Necesito detalles:")
-                    with st.form("answers_form"):
-                        answers = {}
-                        for i, q in enumerate(st.session_state.interview_history["questions"]):
-                            key = f"q_{i}"
-                            val = st.text_input(f"💬 {q}", key=key)
-                            answers[key] = val
-                        if st.form_submit_button("Enviar"):
-                            st.session_state.stored_answers.update(answers)
-                            st.session_state.interview_history["answers"] = list(answers.values())
-                            st.session_state.conversation_state = "interviewing"
-                            st.rerun()
-
-        # Lógica de entrevista (Backend Call)
-        if st.session_state.conversation_state == "interviewing":
-            with st.spinner("🧠 Analizando..."):
-                try:
-                    resp = requests.post(INTERVIEW_URL, json=st.session_state.interview_history, timeout=180)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        st.session_state.final_briefing = json.dumps(data.get("briefing"), indent=2)
-                        st.session_state.conversation_state = "generating"
-                        st.rerun()
-                    else:
-                        st.error("Error en el servidor de entrevista.")
-                        st.session_state.conversation_state = "waiting_for_prompt"
-                except Exception as e:
-                    st.error(f"Error de conexión: {e}")
-                    st.session_state.conversation_state = "waiting_for_prompt"
-
-        # Lógica de generación (Backend Call)
-        if st.session_state.conversation_state == "generating":
-            main_ui.empty()
-            with st.status("⚙️ Generando Workflow...", expanded=True) as status:
-                log_p = status.empty()
-                full_buf = ""
-                try:
-                    resp = requests.post(GENERATION_URL, json={"user_prompt": st.session_state.final_briefing}, timeout=600, stream=True)
-                    for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
-                        if chunk:
-                            full_buf += chunk
-                            log_p.markdown(generating_thoughts_formatter(full_buf) + "▌")
-                    
-                    # Intentar extraer JSON final
-                    if "{" in full_buf:
-                        final_json_str = full_buf[full_buf.find("{"):]
-                        try:
-                            api_resp = json.loads(final_json_str)
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": f"✅ Hecho.\n> {api_resp.get('executive_summary', '')}",
-                                "workflow_json": api_resp.get("workflow_json")
-                            })
-                            status.update(label="✅ Completado", state="complete")
-                        except:
-                            status.update(label="⚠️ Error parseando JSON", state="error")
-                    
-                    st.session_state.conversation_state = "waiting_for_prompt"
-                    st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error generando: {e}")
-                    st.session_state.conversation_state = "waiting_for_prompt"
-
-    # --- PESTAÑA 2: OPTIMIZADOR ---
-    with tab_remix:
-        st.header("♻️ Optimizador")
-        uploaded = st.file_uploader("Sube JSON", type=["json"])
-        instr = st.text_area("Instrucciones", value=st.session_state.get("remix_prompt", ""))
-        if st.button("🚀 Refactorizar") and uploaded and instr:
-            st.info("Conectando con el módulo de refactorización...")
-            # Aquí iría la llamada a REFACTOR_URL (simplificada para este ejemplo)
-
-    # --- PESTAÑA 3: MONITORIZACIÓN ---
+    # --- TAB MONITORIZACIÓN (LA QUE DABA PROBLEMAS) ---
     with tab_monitor:
         st.header("📡 Observabilidad n8n")
         
@@ -278,7 +180,8 @@ if authentication_status:
         with col1:
             if st.button("🔄 Sincronizar Historial n8n"):
                 with st.spinner("Sincronizando..."):
-                    success, msg = fetch_and_store_history()
+                    # LLAMADA A LA FUNCIÓN LOCAL (Cero imports)
+                    success, msg = fetch_and_store_history_local()
                     if success:
                         st.success(msg)
                         time.sleep(1)
@@ -299,7 +202,66 @@ if authentication_status:
         else:
             st.warning("No hay conexión con Supabase.")
 
+    # --- TAB ASISTENTE (Lógica UI) ---
+    with tab_assistant:
+        # Funciones helpers para el chat
+        def handle_user_input(user_input):
+            if isinstance(user_input, dict):
+                content = "\n".join(f"• {v}" for v in user_input.values())
+            else: content = user_input
+            st.session_state.messages.append({"role": "user", "content": content})
+            if st.session_state.conversation_state == "waiting_for_prompt":
+                st.session_state.interview_history["original_prompt"] = content
+                st.session_state.final_briefing = content
+                st.session_state.conversation_state = "interviewing"
+                st.rerun()
+
+        def display_message(msg):
+            with st.chat_message(msg["role"]):
+                try: st.markdown(json.loads(msg["content"]).get("executive_summary", msg["content"]))
+                except: st.markdown(msg["content"])
+                if msg.get("workflow_json"):
+                    st.download_button("📥 JSON", json.dumps(msg["workflow_json"], indent=2), "wf.json")
+
+        main_ui = st.empty()
+        with main_ui.container():
+            for msg in st.session_state.messages: display_message(msg)
+            
+            if st.session_state.conversation_state == "waiting_for_prompt":
+                st.info("💡 Describe un proceso...")
+                if p := st.chat_input("¿Qué automatizamos?"): handle_user_input(p)
+
+            # Lógica simplificada de entrevista/generación
+            if st.session_state.conversation_state == "interviewing":
+                with st.spinner("🧠 Analizando..."):
+                    try:
+                        r = requests.post(INTERVIEW_URL, json=st.session_state.interview_history, timeout=120)
+                        if r.ok:
+                            st.session_state.final_briefing = json.dumps(r.json().get("briefing"), indent=2)
+                            st.session_state.conversation_state = "generating"
+                            st.rerun()
+                    except Exception as e: st.error(f"Error: {e}")
+
+            if st.session_state.conversation_state == "generating":
+                st.info("⚙️ Generando...")
+                try:
+                    r = requests.post(GENERATION_URL, json={"user_prompt": st.session_state.final_briefing}, stream=True, timeout=600)
+                    full_resp = ""
+                    for chunk in r.iter_content(decode_unicode=True): full_resp += chunk or ""
+                    
+                    if "{" in full_resp:
+                        final_json = json.loads(full_resp[full_resp.find("{"):])
+                        st.session_state.messages.append({"role": "assistant", "content": f"✅ Listo.", "workflow_json": final_json.get("workflow_json")})
+                    
+                    st.session_state.conversation_state = "waiting_for_prompt"
+                    st.rerun()
+                except Exception as e: st.error(f"Error: {e}")
+
+    with tab_remix:
+        st.header("♻️ Optimizador")
+        st.info("Sube tu JSON para optimizar.")
+
 elif authentication_status is False:
-    st.error('Usuario o contraseña incorrectos')
+    st.error('Credenciales incorrectas')
 elif authentication_status is None:
     st.warning('Por favor, inicia sesión')
