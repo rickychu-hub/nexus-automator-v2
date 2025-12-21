@@ -1,0 +1,118 @@
+[33me46e111[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix: Path visibility for backend module
+[33m5620d9a[m Fix: Path visibility for backend module
+[33m9254306[m Fix: Path visibility for backend module
+[33m53e3051[m Fix: Path visibility for backend module
+[33mfd384d4[m Fix: Path visibility for backend module
+[33m67caf47[m Fix: Path visibility for backend module
+[33mdde8675[m Fix: Path visibility for backend module
+[33m276ace5[m Fix: All-in-one frontend to solve import hell
+[33ma157961[m Fix: All-in-one frontend to solve import hell
+[33m54aa5fa[m Fix: Path visibility for backend module
+[33me377f3e[m Fix: Add missing init file to backend root
+[33mb80d07e[m Fix: NameError variable scope in import
+[33m27201ee[m Fix: Patch cookie component version
+[33m2ce348e[m Restore: Full AI Assistant + Login + Sync
+[33m5d2425b[m Fix: Downgrade authenticator version
+[33m1a450b0[m Update: Login persistente + Sync con Supabase
+[33m466dde7[m Update: Login persistente y Sincronizacion n8n
+[33m6a40ddc[m Mejora: Sync con n8n y Login persistente
+[33m6232765[m Feat: UI Cleanup, Mock Data Injection y Spec-Sheet mejorada
+[33ma98a828[m Feat: Nuevo Módulo Remix & Refactor (Backend + Frontend)
+[33me9a4501[m Feat: Nuevo Módulo Remix & Refactor (Backend + Frontend)
+[33mc0aa708[m Feat: Nuevo Módulo Remix & Refactor (Backend + Frontend)
+[33me3762f8[m Feat: UI Cleanup, Mock Data Injection y Spec-Sheet mejorada
+[33m69008fd[m Feat: Implementar Spec-Sheet (Guía de Configuración Manual) en Backend y Frontend
+[33m0b8c103[m Feat: Implementar Spec-Sheet (Guía de Configuración Manual) en Backend y Frontend
+[33m124523c[m Refactor: Mejoras de UX en Frontend (Streaming suave + Hard Reset)
+[33m2a3789f[m Refactor: Mejoras de UX en Frontend (Streaming suave + Hard Reset)
+[33ma7585b1[m Fix: Actualizar save_workflow_log para aceptar smart_title
+[33m451deb3[m SECURITY: Eliminar .env filtrado de la ruta correcta
+[33md23247b[m Fix: Forzar creación de colección durante ingesta
+[33m7b77e03[m Refactor: Mover data_pipeline dentro de backend para contexto Docker
+[33m0f68f4c[m FIX: Forzar subida de carpeta data_pipeline para Docker
+[33m3c9a7fa[m Feat: Ingesta masiva ETL (3000 workflows) y Docker copy
+[33m14b1d56[m FIX: Limpieza crítica - Eliminar entorno virtual del repo y asegurar gitignore
+[33mae76f24[m FIX: Limpieza crítica - Eliminar entorno virtual del repo y asegurar gitignore
+[33ma7689fc[m Refactor: Desacoplamiento de ChromaDB y limpieza de dependencias para Render
+[33mdc6ebc4[m fix: app.py
+[33mf1288cc[m fix: app.py
+[33m159987f[m fix: app.py
+[33md1c2597[m fix: app.py
+[33mf368a8f[m fix: app.py
+[33m23779a2[m fix: app.py
+[33m4b95416[m fix: app.py
+[33m628608b[m fix: app.py
+[33mc907c19[m fix: app.py
+[33m1410982[m fix: app.py
+[33m994b0b8[m fix: app.py optim
+[33m5781df2[m fix: app.py optimi
+[33md9e4572[m fix: app.py optimiza
+[33m2b28240[m fix: app.py optimizad
+[33mf245acf[m fix: app.py optimizada
+[33m64436e3[m feat: inyección headless completa
+[33m554da2a[m fix: parche v7.1 builder nombres sanitizados
+[33m74c5e66[m fix: añadir supabase a dependencias del frontend
+[33m733dce5[m fix: añadir sentry-sdk a dependencias
+[33mf5a1aa5[m feat: Monitorización conectada
+[33m3d18e78[m FIX PYTHON: Definir variable clean_host faltante
+[33mf547c51[m NUCLEAR FIX: Re-indexado completo de data_pipeline
+[33m180bd41[m FIX FINAL: Forzar actualización de host en Chroma
+[33m2365432[m FIX: Host dinámico para Render
+[33m316e117[m FIX FINAL: Supabase conectado, Chroma v0.4.24 y bugs corregidos
+[33me15ae8c[m Fix: Arquitecto V12 - Validacion de IDs + Estructura de Árbl
+[33m6d023a3[m Fix: Arquitecto V12 - Validacion de IDs + Estructura de Árbol
+[33mc16d056[m Fix: Arquitecto V11 - Forzar estructura de árbol con branches
+[33m365313e[m Fix: Arquitecto V10 con Native JSON Mode (No más cortes)
+[33m77bc926[m Fix: Builder 9.0 - Auto-reparación de reglas Switch faltantes
+[33mc691729[m Fix: Arquitecto Estricto - Prohibido inventar nodos
+[33m320af53[m Fix: Builder 8.0 con Lógica de Gravedad para evitar colisiones
+[33m9f1ef49[m Fix: Arquitecto con lógica de reintento
+[33mfa1eb3c[m Fix: Arquitecto con lógica de reintento (Self-Healing)
+[33m7e4a724[m Fix: Builder 7.0 - Switch connections fixed & 700px layout
+[33m1fee9d5[m Fix: Soporte universal para N ramas (Switch/Router)
+[33m11368d4[m Fix: Notas dinámicas (Arriba/Abajo) según rama
+[33m42d6bba[m Fix: Layout visual espacioso para notas
+[33m0e74b5e[m Mejora: Layout Inteligente y Notas Vinculadas
+[33m2536d1e[m Mejora: Writer 3.0 - Guía paso a paso para principiante
+[33md993801[m Mejora: Writer 3.0 - Guía paso a paso para principiantes
+[33mbf705fa[m Fix: Arquitecto JSON parser robusto
+[33m35e134a[m Fix: Eliminar animación lottie para arreglar deploy
+[33m4d29cb8[m Refactorización Nexus OS: Estructura modular V4.0
+[33m9b2e4aa[m boton n8nv3
+[33m33560e2[m boton n8nv2
+[33ma346ad2[m boton n8nv1
+[33me9a7ec5[m boton n8n
+[33m6c29502[m mejora agente arq
+[33mff05c8c[m mejora agente arqu
+[33mf52a08b[m mejora agente arqui
+[33m602d017[m mejora agente arquit
+[33m2ef6fd2[m mejora agente arquite
+[33m928f187[m mejora agente arquitec
+[33mc5fc601[m mejora agente arquitect
+[33mac7a1b0[m mejora agente arquitecto
+[33m2edbeb9[m FIX: Eliminar función /interview duplicada
+[33me305796[m Fix: Hacer el frontend robusto contra briefings JSON
+[33m8190bfc[m Forzar actualizaciónes
+[33m9b6f559[m Forzar actualizació
+[33m5609ecd[m Forzar actualización
+[33m1087406[m Implementa
+[33m261effa[m Implementar
+[33mf36dc30[m Implementar camb
+[33m4b187e0[m Implementar cambi
+[33mf61cabe[m Implementar cambio
+[33m5e2446d[m Implementar cambios
+[33m01f96f5[m Implementar Cadena de Propósito y Bucle de Validación
+[33mf787064[m Fix: Eliminar definición de función duplicada
+[33m4df7959[m Fix: Eliminar conexión duplicada y añadir endpoint /interview
+[33m51a6421[m Eliminar archivos .env y arreglar Dockerfile para evitar fugas de API
+[33mad94852[m Eliminar archivos .env y arreglar Dockerfile para evitar fugas de API
+[33m7f7bd22[m Añadir endpoint /debug-api
+[33m33dae8a[m Añadir endpoint debug y Dockerfile explícito
+[33m7d05499[m V7.0: Pivot a arquitectura de 3 servicios con ChromaDB Server
+[33md75aefe[m V6.4: Forzando el uso de S3Storage API en ChromaDB
+[33m5a9751c[m V6.3: Forzando la resincronización de todos los archivos S3/Minio
+[33me504e71[m V6.2: Arreglo final del data_pipeline/load_chroma.py
+[33m85d892f[m V6.2: Simplifica ChromaDB a Client() y usa 100% variables de entorno
+[33m8d3e1ae[m V6.1: Corrige la configuración de ChromaDB S3 y añade pyarrow
+[33md315821[m V6.0: Pivot a S3/Minio y añado dependencia boto3
+[33m95e75c5[m V5.0: Initial commit for Render deployment
