@@ -7,3 +7,4 @@ supabase
 pandas
 requests
 streamlit-authenticator==0.3.3
+extra-streamlit-components==0.1.71
