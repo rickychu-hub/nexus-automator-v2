@@ -37,9 +37,9 @@ except ImportError:
         from backend.app.services.n8n_sync import fetch_and_store_history
     except ImportError as e:
         # Fallback para no romper la UI completa
-        logger.error(f"Error importando backend: {e}")
-        def fetch_and_store_history(): return False, f"Error de importación: {e}"
-
+        error_msg = str(e) # <--- CAPTURAMOS EL TEXTO AQUÍ PARA QUE NO SE BORRE
+        logger.error(f"Error importando backend: {error_msg}")
+        def fetch_and_store_history(): return False, f"Error de importación: {error_msg}"
 # --- 2. AUTENTICACIÓN (Persistente) ---
 # Hash para '369852147'
 hashed_passwords = stauth.Hasher(['369852147', 'demo123']).generate()
