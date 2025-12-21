@@ -31,6 +31,10 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 N8N_HOST = os.getenv("N8N_HOST") or os.getenv("N8N_BASE_URL")
 N8N_API_KEY = os.getenv("N8N_API_KEY")
 
+if not SUPABASE_URL or not SUPABASE_KEY:
+    st.error("🚨 Error Crítico: Faltan credenciales de Supabase en el entorno.")
+    st.stop()
+
 @st.cache_resource
 def init_supabase():
     if not SUPABASE_URL or not SUPABASE_KEY: return None
@@ -112,7 +116,8 @@ def fetch_and_store_history_local():
                     s = datetime.datetime.fromisoformat(started_at.replace('Z', '+00:00'))
                     e = datetime.datetime.fromisoformat(stopped_at.replace('Z', '+00:00'))
                     duration_ms = int((e - s).total_seconds() * 1000)
-                except: pass
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha: {e}")
 
             payload = {
                 "n8n_execution_id": n8n_id,
@@ -132,6 +137,17 @@ def fetch_and_store_history_local():
 
     except Exception as e:
         return False, f"Error: {str(e)}"
+
+# --- 2.5 CACHING ---
+@st.cache_data(ttl=30)
+def fetch_recent_workflows():
+    if not supabase: return []
+    try:
+        response = supabase.table('workflows').select("name, created_at, workflow_json").order('created_at', desc=True).limit(5).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching cached workflows: {e}")
+        return []
 
 # --- 3. AUTH & UI (Igual que antes) ---
 hashed_passwords = stauth.Hasher(['369852147', 'demo123']).generate()
@@ -163,11 +179,11 @@ if authentication_status:
         st.subheader("📂 Biblioteca")
         if supabase:
             try:
-                # Consultamos los últimos 5 workflows guardados
-                response = supabase.table('workflows').select("name, created_at, workflow_json").order('created_at', desc=True).limit(5).execute()
+                # Consultamos los últimos 5 workflows guardados (CACHED)
+                recent_wfs = fetch_recent_workflows()
                 
-                if response.data:
-                    for i, wf in enumerate(response.data):
+                if recent_wfs:
+                    for i, wf in enumerate(recent_wfs):
                         wf_name = wf.get('name', 'Sin Nombre')
                         wf_json = wf.get('workflow_json')
                         wf_date = wf.get('created_at', '')[:10]
@@ -190,8 +206,10 @@ if authentication_status:
                                 st.warning("⚠️ JSON vacío")
                 else:
                     st.caption("📭 No hay workflows guardados en la DB.")
-            except Exception:
-                st.caption("⚠️ Error cargando historial.")
+            except Exception as e:
+                st.error(f"🔥 Error Debug: {str(e)}")
+                # Opcional: imprimir en consola también
+                logger.error(f"Sidebar Error: {e}")
         if st.button("🗑️ Nuevo Chat", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
