@@ -347,6 +347,31 @@ def final_assembler(nodes, connections, user_request):
 # --- 3. THE ENFORCER (Deep Repair) ---
 
 
+def extract_nodes_smart(raw_json):
+    """
+    Busca la lista 'nodes' en cualquier nivel del JSON.
+    """
+    # 1. Si ya está en la raíz, perfecto
+    if "nodes" in raw_json and isinstance(raw_json["nodes"], list):
+        return raw_json
+
+    # 2. Búsqueda de claves comunes donde la IA suele esconder los datos
+    candidate_keys = ["workflow", "workflow_json", "data", "json", "result"]
+    
+    for key in candidate_keys:
+        if key in raw_json and isinstance(raw_json[key], dict):
+            if "nodes" in raw_json[key]:
+                # ¡Encontrado! Elevamos los nodos a la raíz
+                raw_json["nodes"] = raw_json[key]["nodes"]
+                # Intentamos rescatar conexiones también
+                if "connections" in raw_json[key]:
+                    raw_json["connections"] = raw_json[key]["connections"]
+                return raw_json
+
+    # 3. Si todo falla, intentamos buscar cualquier lista de objetos que parezcan nodos
+    # (Opcional, pero recomendado como último recurso)
+    return raw_json
+
 def sanitize_n8n_nodes(workflow_json):
     # Mapa de Prioridad: Palabra Clave -> Tipo Oficial de n8n
     # El orden importa: las más específicas primero.
@@ -400,6 +425,9 @@ def validar_y_reparar_deep(w: dict) -> dict:
     connections = w.get("connections", {})
     nodes = w.get("nodes", [])
     
+    # [NEW] Rescue JSON (Search Deep) - ANTES del sanitizador
+    w = extract_nodes_smart(w)
+
     # [NEW] Aggressive Sanitization (Pasamos todo el objeto workflow)
     w = sanitize_n8n_nodes(w)
     
