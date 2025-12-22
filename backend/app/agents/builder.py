@@ -346,48 +346,53 @@ def final_assembler(nodes, connections, user_request):
 
 # --- 3. THE ENFORCER (Deep Repair) ---
 
-NODE_TYPE_MAP = {
-    # Common hallucinations to fix
-    "slack1": "n8n-nodes-base.slack",
-    "if1": "n8n-nodes-base.if",
-    "openai1": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-    "rssfeedreadtrigger1": "n8n-nodes-base.rssFeedReadTrigger",
-    "filter1": "n8n-nodes-base.filter",
-    "webhook1": "n8n-nodes-base.webhook",
-    "set1": "n8n-nodes-base.set",
-    "switch1": "n8n-nodes-base.switch",
-    "code1": "n8n-nodes-base.code"
-}
 
-def sanitize_n8n_nodes(nodes: list) -> list:
-    """
-    Self-healing function to fix common AI hallucinations in node types.
-    """
-    cleaned_nodes = []
-    for node in nodes:
-        original_type = node.get("type", "").lower()
-        new_type = original_type
-        
-        # 1. Direct Map Lookup
-        if original_type in NODE_TYPE_MAP:
-            new_type = NODE_TYPE_MAP[original_type]
-            if new_type != original_type:
-                logger.info(f"🚑 Sanitizer: Fixed {original_type} -> {new_type}")
-        
-        # 2. General Rule: Ends in digit & not namespaced -> Clean it
-        # Ex: "slack1" -> "n8n-nodes-base.slack" (Guessing)
-        # But be careful not to break valid nodes.
-        elif re.search(r'\d+$', original_type) and not original_type.startswith("n8n-nodes-base"):
-            # Try to guess the base name
-            base_guess = re.sub(r'\d+$', '', original_type)
-            potential_fix = f"n8n-nodes-base.{base_guess}"
-            logger.info(f"🚑 Sanitizer: Heuristic Fix {original_type} -> {potential_fix}")
-            new_type = potential_fix
+def sanitize_n8n_nodes(workflow_json):
+    # Mapa de Prioridad: Palabra Clave -> Tipo Oficial de n8n
+    # El orden importa: las más específicas primero.
+    TYPE_RULES = [
+        ("webhook", "n8n-nodes-base.webhook"),
+        ("rss", "n8n-nodes-base.rssFeedReadTrigger"),
+        ("feed", "n8n-nodes-base.rssFeedReadTrigger"), # Captura 'rssfeedmonitor'
+        ("slack", "n8n-nodes-base.slack"),             # Captura 'slacknotification'
+        ("openai", "@n8n/n8n-nodes-langchain.lmChatOpenAi"),
+        ("gpt", "@n8n/n8n-nodes-langchain.lmChatOpenAi"),
+        ("ai", "@n8n/n8n-nodes-langchain.lmChatOpenAi"), # Captura 'aianalysisnode' (riesgoso pero necesario)
+        ("filter", "n8n-nodes-base.filter"),
+        ("if", "n8n-nodes-base.if"),
+        ("route", "n8n-nodes-base.if"),                # Captura 'routebyimportance'
+        ("switch", "n8n-nodes-base.switch"),
+        ("notion", "n8n-nodes-base.notion"),
+        ("sheet", "n8n-nodes-base.googleSheets"),
+        ("mail", "n8n-nodes-base.gmail"),
+        ("stickynote", "n8n-nodes-base.stickyNote")
+    ]
 
-        node["type"] = new_type
-        cleaned_nodes.append(node)
+    if "nodes" in workflow_json:
+        for node in workflow_json["nodes"]:
+            original_type = node.get("type", "").lower()
+            
+            # 1. Si ya empieza por n8n-nodes-base o @n8n, asumimos que es correcto y lo dejamos
+            if original_type.startswith("n8n-nodes-base") or original_type.startswith("@n8n"):
+                continue
+
+            # 2. Búsqueda Agresiva: Si contiene la palabra clave, forzamos el tipo
+            match_found = False
+            for keyword, official_type in TYPE_RULES:
+                if keyword in original_type:
+                    node["type"] = official_type
+                    match_found = True
+                    break # Dejamos de buscar, ya encontramos el match
+            
+            # 3. Fallback: Si no coincide con nada, al menos ponle el prefijo base
+            if not match_found:
+                 node["type"] = f"n8n-nodes-base.{original_type}"
+
+    # Marca el JSON como sanitizado 'aggressive'
+    if "meta" not in workflow_json: workflow_json["meta"] = {}
+    workflow_json["meta"]["generated_by"] = "Nexus OS v7.2 (Aggressive Sanitizer)"
     
-    return cleaned_nodes
+    return workflow_json
 
 def validar_y_reparar_deep(w: dict) -> dict:
     if not isinstance(w, dict): return w
@@ -395,8 +400,11 @@ def validar_y_reparar_deep(w: dict) -> dict:
     connections = w.get("connections", {})
     nodes = w.get("nodes", [])
     
-    # [NEW] Sanitize Types First
-    nodes = sanitize_n8n_nodes(nodes)
+    # [NEW] Aggressive Sanitization (Pasamos todo el objeto workflow)
+    w = sanitize_n8n_nodes(w)
+    
+    # Recargamos la lista tras la sanitización (por si acaso cambió algo estructural, aunque normalmente cambia valores internos)
+    nodes = w.get("nodes", [])
     
     nodes_map = {n['name']: n for n in nodes}
 
