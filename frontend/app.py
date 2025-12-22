@@ -12,12 +12,15 @@ import re
 import datetime # <--- Need this for KPI calculation
 import unicodedata
 import pandas as pd
+import pandas as pd
 from supabase import create_client, Client
+import streamlit_authenticator as stauth
 
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="Nexus OS", page_icon="⚡", layout="wide")
 
-# Credenciales de Acceso (Simple para MVP)
+# Credenciales de Acceso (Gestión Robusta)
+# USERS_DB se mantiene para referencia, pero el auth real usa el Authenticator
 USERS_DB = {
     "ricardochunas@gmail.com": "369852147", 
     "demo": "demo123"
@@ -48,9 +51,37 @@ def init_supabase():
 
 supabase = init_supabase()
 
+@st.cache_resource
+def get_hashed_credentials():
+    """Genera hashes una sola vez por sesión de servidor para evitar re-logins."""
+    return stauth.Hasher(['369852147', 'demo123']).generate()
+
+hashed_passwords = get_hashed_credentials()
+
+auth_config = {
+    'credentials': {
+        'usernames': {
+            'ricardochunas@gmail.com': {'name': 'Ricardo Chunas', 'password': hashed_passwords[0]}, 
+            'demo': {'name': 'Demo User', 'password': hashed_passwords[1]}
+        }
+    },
+    'cookie': {
+        'expiry_days': 30, 
+        'key': 'nexus_key_signature_fixed', 
+        'name': 'nexus_auth_v9_persistent' # Nombre nuevo para invalidar cookies viejas
+    },
+    'pre-authorized': {'emails': ['ricardochunas@gmail.com']}
+}
+
+authenticator = stauth.Authenticate(
+    auth_config['credentials'],
+    auth_config['cookie']['name'],
+    auth_config['cookie']['key'],
+    auth_config['cookie']['expiry_days'],
+    auth_config['pre-authorized']
+)
+
 # --- INICIALIZAR SESSION_STATE ---
-if "authenticated" not in st.session_state: st.session_state.authenticated = False
-if "username" not in st.session_state: st.session_state.username = ""
 if "messages" not in st.session_state: st.session_state.messages = []
 if "conversation_state" not in st.session_state: st.session_state.conversation_state = "waiting_for_prompt"
 if "interview_history" not in st.session_state: st.session_state.interview_history = {"original_prompt": "", "questions": [], "answers": []}
@@ -203,27 +234,8 @@ def generar_nombre_corto(briefing_text: str) -> str:
     name = re.sub(r'[^a-z0-9_]+', '', name)
     return name or "workflow"
 
-def login():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("""
-        <div class="login-container">
-            <h2>🔐 Nexus </h2>
-            <p style="color:#8b949e;">Acceso restringido</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        username = st.text_input("Usuario")
-        password = st.text_input("Contraseña", type="password")
-        
-        if st.button("Iniciar Sesión", use_container_width=True):
-            if username in USERS_DB and USERS_DB[username] == password:
-                st.session_state.authenticated = True
-                st.session_state.username = username
-                st.rerun()
-            else:
-                st.error("❌ Credenciales incorrectas")
+# Función de Login antigua reemplazada por el componente nativo
+# def login(): ... (Eliminado)
 
 
 def load_workflow_from_history(record):
@@ -266,12 +278,12 @@ def load_workflow_from_history(record):
     
 def render_sidebar():
     with st.sidebar:
-        username = st.session_state.get("username", "Usuario")
-        st.markdown(f"### 👤 `{username}`")
+        # Logout manejado por el componente
+        authenticator.logout('Cerrar Sesión', 'sidebar')
         
-        if st.button("Cerrar Sesión"):
-            st.session_state.authenticated = False
-            st.rerun()
+        # Recuperar nombre real
+        username = st.session_state.get("name") or st.session_state.get("username", "Usuario")
+        st.markdown(f"### 👤 `{username}`")
         
         st.divider()
         st.markdown("### 📂 Historial Reciente")
@@ -821,7 +833,14 @@ def main_app():
 
 
 if __name__ == "__main__":
-    if not st.session_state.authenticated:
-        login()
-    else:
+    # Autenticación Principal
+    name, authentication_status, username = authenticator.login('main')
+
+    if authentication_status:
+        # Recuperar estado si es necesario
+        if "username" not in st.session_state: st.session_state.username = username
         main_app()
+    elif authentication_status is False:
+        st.error('Usuario o contraseña incorrectos')
+    elif authentication_status is None:
+        st.warning('Introduce tus credenciales')

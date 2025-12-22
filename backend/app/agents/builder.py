@@ -345,11 +345,59 @@ def final_assembler(nodes, connections, user_request):
 
 
 # --- 3. THE ENFORCER (Deep Repair) ---
+
+NODE_TYPE_MAP = {
+    # Common hallucinations to fix
+    "slack1": "n8n-nodes-base.slack",
+    "if1": "n8n-nodes-base.if",
+    "openai1": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+    "rssfeedreadtrigger1": "n8n-nodes-base.rssFeedReadTrigger",
+    "filter1": "n8n-nodes-base.filter",
+    "webhook1": "n8n-nodes-base.webhook",
+    "set1": "n8n-nodes-base.set",
+    "switch1": "n8n-nodes-base.switch",
+    "code1": "n8n-nodes-base.code"
+}
+
+def sanitize_n8n_nodes(nodes: list) -> list:
+    """
+    Self-healing function to fix common AI hallucinations in node types.
+    """
+    cleaned_nodes = []
+    for node in nodes:
+        original_type = node.get("type", "").lower()
+        new_type = original_type
+        
+        # 1. Direct Map Lookup
+        if original_type in NODE_TYPE_MAP:
+            new_type = NODE_TYPE_MAP[original_type]
+            if new_type != original_type:
+                logger.info(f"🚑 Sanitizer: Fixed {original_type} -> {new_type}")
+        
+        # 2. General Rule: Ends in digit & not namespaced -> Clean it
+        # Ex: "slack1" -> "n8n-nodes-base.slack" (Guessing)
+        # But be careful not to break valid nodes.
+        elif re.search(r'\d+$', original_type) and not original_type.startswith("n8n-nodes-base"):
+            # Try to guess the base name
+            base_guess = re.sub(r'\d+$', '', original_type)
+            potential_fix = f"n8n-nodes-base.{base_guess}"
+            logger.info(f"🚑 Sanitizer: Heuristic Fix {original_type} -> {potential_fix}")
+            new_type = potential_fix
+
+        node["type"] = new_type
+        cleaned_nodes.append(node)
+    
+    return cleaned_nodes
+
 def validar_y_reparar_deep(w: dict) -> dict:
     if not isinstance(w, dict): return w
     
     connections = w.get("connections", {})
     nodes = w.get("nodes", [])
+    
+    # [NEW] Sanitize Types First
+    nodes = sanitize_n8n_nodes(nodes)
+    
     nodes_map = {n['name']: n for n in nodes}
 
     for i, node in enumerate(nodes):
