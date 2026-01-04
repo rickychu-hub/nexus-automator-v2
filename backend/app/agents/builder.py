@@ -347,30 +347,49 @@ def final_assembler(nodes, connections, user_request):
 # --- 3. THE ENFORCER (Deep Repair) ---
 
 
-def extract_nodes_smart(raw_json):
+def extract_nodes_smart(raw_response):
     """
-    Busca la lista 'nodes' en cualquier nivel del JSON.
+    Extrae el objeto JSON de nodos limpiando cualquier formato Markdown o texto explicativo.
     """
-    # 1. Si ya está en la raíz, perfecto
-    if "nodes" in raw_json and isinstance(raw_json["nodes"], list):
-        return raw_json
+    # 1. Asegurar que trabajamos con string
+    if not isinstance(raw_response, str):
+        return raw_response
 
-    # 2. Búsqueda de claves comunes donde la IA suele esconder los datos
-    candidate_keys = ["workflow", "workflow_json", "data", "json", "result"]
-    
-    for key in candidate_keys:
-        if key in raw_json and isinstance(raw_json[key], dict):
-            if "nodes" in raw_json[key]:
-                # ¡Encontrado! Elevamos los nodos a la raíz
-                raw_json["nodes"] = raw_json[key]["nodes"]
-                # Intentamos rescatar conexiones también
-                if "connections" in raw_json[key]:
-                    raw_json["connections"] = raw_json[key]["connections"]
-                return raw_json
+    clean_text = raw_response.strip()
 
-    # 3. Si todo falla, intentamos buscar cualquier lista de objetos que parezcan nodos
-    # (Opcional, pero recomendado como último recurso)
-    return raw_json
+    # 2. ESTRATEGIA A: Limpieza de Markdown con Regex (La más efectiva)
+    # Busca contenido entre ```json y ``` o simplemente entre ``` y ```
+    markdown_pattern = r"```(?:json)?(.*?)```"
+    match = re.search(markdown_pattern, clean_text, re.DOTALL)
+    if match:
+        clean_text = match.group(1).strip()
+    else:
+        # Fallback manual por si acaso
+        clean_text = clean_text.replace("```json", "").replace("```", "")
+
+    # 3. ESTRATEGIA B: Parseo Directo
+    try:
+        return json.loads(clean_text)
+    except json.JSONDecodeError:
+        pass
+
+    # 4. ESTRATEGIA C: Búsqueda Quirúrgica (Si hay texto antes o después)
+    # Busca la estructura {"nodes": [...]}
+    try:
+        # Regex que busca desde {"nodes" hasta el cierre correspondiente
+        # Nota: Es una aproximación, json.loads es quien valida al final
+        pattern_nodes = r'(\{.*?"nodes"\s*:\s*\[.*?\}.*?)' 
+        # Buscamos el primer '{' y el último '}' como delimitadores brutos
+        start = clean_text.find("{")
+        end = clean_text.rfind("}") + 1
+        if start != -1 and end != 0:
+            potential_json = clean_text[start:end]
+            return json.loads(potential_json)
+    except:
+        pass
+
+    print(f"❌ Builder Error: No se pudo extraer JSON limpio. Raw: {raw_response[:50]}...")
+    return {"nodes": [], "connections": {}} # Retorno seguro vacío
 
 def sanitize_n8n_nodes(workflow_json):
     # Mapa de Prioridad: Palabra Clave -> Tipo Oficial de n8n
