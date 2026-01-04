@@ -1,6 +1,7 @@
 # backend/app/agents/architect.py
 import logging
 import json
+import re
 import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,38 @@ def agent_architect(investigation_results, user_request, knowledge_base_memory, 
 
     try:
         response = model.generate_content(prompt, generation_config=generation_config)
-        plan = json.loads(response.text)
+        raw_content = response.text.strip()
+
+        # 1. Intentar limpieza de bloques de código Markdown (```json ... ```)
+        if "```" in raw_content:
+            # Usamos regex para extraer solo el contenido dentro de los bloques
+            pattern = r"```(?:json)?(.*?)```"
+            match = re.search(pattern, raw_content, re.DOTALL)
+            if match:
+                raw_content = match.group(1).strip()
+            else:
+                # Fallback simple: quitar los backticks
+                raw_content = raw_content.replace("```json", "").replace("```", "")
+
+        # 2. Parseo Seguro
+        try:
+            plan = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Error parseando JSON del Arquitecto: {e}")
+            logger.info(f"🔍 Contenido recibido: {raw_content[:200]}...") # Log para depurar
+            
+            # INTENTO DESESPERADO: Buscar el primer '{' y el último '}'
+            try:
+                start = raw_content.find("{")
+                end = raw_content.rfind("}") + 1
+                if start != -1 and end != 0:
+                    json_str = raw_content[start:end]
+                    plan = json.loads(json_str)
+                else:
+                    raise e # Si no hay llaves, nos rendimos
+            except:
+                # Si todo falla, devolvemos una estructura mínima para no tumbar el servidor
+                plan = {"nodes": [], "connections": {}, "error": "Failed to parse Architect response"}
         
         # --- VALIDACIÓN DE EMERGENCIA ---
         # Si detectamos nodos inventados, forzamos un error para no entregar basura
